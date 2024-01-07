@@ -1,0 +1,16 @@
+[package]
+name = "webrtc-signal-server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix = "0.13.1"
+actix-web = "4.4.1"
+actix-web-actors = "4.2.0"
+dotenv = "0.15.0"
+env_logger = "0.10.1"
+nb-from-env = "0.2.1"
+serde = { version = "1.0.195", features = ["derive"] }
+serde_json = { version = "1.0.111", features = ["raw_value"] }
