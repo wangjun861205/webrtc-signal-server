@@ -1307,6 +1307,7 @@ dependencies = [
  "nb-from-env",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

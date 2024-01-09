@@ -14,3 +14,4 @@ env_logger = "0.10.1"
 nb-from-env = "0.2.1"
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = { version = "1.0.111", features = ["raw_value"] }
+tokio = "1.35.1"
