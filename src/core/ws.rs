@@ -12,6 +12,10 @@ struct Login(String);
 
 #[derive(Serialize, Deserialize, Message)]
 #[rtype(result = "()")]
+struct LoginSuccess;
+
+#[derive(Serialize, Deserialize, Message)]
+#[rtype(result = "()")]
 struct Logout;
 
 #[derive(Serialize, Deserialize, Message)]
@@ -32,16 +36,25 @@ struct Out {
 pub struct WS {
     id: String,
     addrs: Arc<RwLock<HashMap<String, Addr<Self>>>>,
+    has_logined: bool,
 }
 
 impl WS {
     pub fn new(id: String, addrs: Arc<RwLock<HashMap<String, Addr<Self>>>>) -> Self {
-        Self { id, addrs }
+        Self {
+            id,
+            addrs,
+            has_logined: false,
+        }
     }
 }
 
 impl Actor for WS {
     type Context = WebsocketContext<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.notify(Login(self.id.clone()));
+    }
 }
 
 impl Handler<Login> for WS {
@@ -51,14 +64,22 @@ impl Handler<Login> for WS {
         let addrs = self.addrs.clone();
         let self_addr = ctx.address();
         ctx.spawn(wrap_future(async move {
-            addrs.write().await.insert(id.clone(), self_addr);
+            addrs.write().await.insert(id.clone(), self_addr.clone());
+            self_addr.do_send(LoginSuccess);
         }));
+    }
+}
+
+impl Handler<LoginSuccess> for WS {
+    type Result = ();
+    fn handle(&mut self, _msg: LoginSuccess, _ctx: &mut Self::Context) -> Self::Result {
+        self.has_logined = true;
     }
 }
 
 impl Handler<Logout> for WS {
     type Result = ();
-    fn handle(&mut self, msg: Logout, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: Logout, ctx: &mut Self::Context) -> Self::Result {
         let addrs = self.addrs.clone();
         let id = self.id.clone();
         ctx.spawn(wrap_future(async move {
@@ -70,6 +91,13 @@ impl Handler<Logout> for WS {
 impl Handler<In> for WS {
     type Result = ();
     fn handle(&mut self, msg: In, ctx: &mut Self::Context) -> Self::Result {
+        if !self.has_logined {
+            ctx.notify(Out {
+                from: "server".into(),
+                status_code: 401,
+                payload: "has not logined, please try again later".into(),
+            })
+        }
         let id = self.id.clone();
         let addrs = self.addrs.clone();
         let self_addr = ctx.address();
