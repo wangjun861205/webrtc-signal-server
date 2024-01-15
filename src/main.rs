@@ -28,17 +28,6 @@ struct Config {
     auth_token_secret: String,
 }
 
-type AddrMap = Arc<RwLock<HashMap<String, Addr<WS>>>>;
-
-async fn index(
-    req: HttpRequest,
-    stream: Payload,
-    id: Path<(String,)>,
-    map: Data<AddrMap>,
-) -> Result<HttpResponse, Error> {
-    ws::start(WS::new(id.0.clone(), map.as_ref().clone()), &req, stream)
-}
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
@@ -58,10 +47,11 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .wrap(AuthTokenMiddleware::new(
                 "X-Auth-Token",
+                "X-User-ID",
                 jwt_token_manager.clone(),
             ))
             .app_data(Data::new(map.clone()))
-            .route("/ws/{id}", get().to(index))
+            .route("/ws", get().to(handlers::ws::index))
             .route(
                 "/login",
                 post().to(handlers::auth::login::<
