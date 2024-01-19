@@ -49,28 +49,34 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .service(
                 scope("/apis/v1")
-                    .route(
-                        "/login",
-                        post().to(handlers::auth::login::<
-                            MemoryRepository,
-                            ShaHasher,
-                            JWTTokenManager<Hmac<Sha256>>,
-                        >),
+                    .service(
+                        scope("/auth")
+                            .route(
+                                "/login",
+                                post().to(handlers::auth::login::<
+                                    MemoryRepository,
+                                    ShaHasher,
+                                    JWTTokenManager<Hmac<Sha256>>,
+                                >),
+                            )
+                            .route(
+                                "/signup",
+                                post().to(handlers::auth::signup::<
+                                    MemoryRepository,
+                                    ShaHasher,
+                                    JWTTokenManager<Hmac<Sha256>>,
+                                >),
+                            ),
                     )
-                    .route(
-                        "/signup",
-                        post().to(handlers::auth::signup::<
-                            MemoryRepository,
-                            ShaHasher,
-                            JWTTokenManager<Hmac<Sha256>>,
-                        >),
-                    )
-                    // .wrap(AuthTokenMiddleware::new(
-                    //     "X-Auth-Token",
-                    //     "X-User-ID",
-                    //     jwt_token_manager.clone(),
-                    // ))
-                    .route("/ws", get().to(handlers::ws::index)),
+                    .service(
+                        scope("")
+                            .wrap(AuthTokenMiddleware::new(
+                                "X-Auth-Token",
+                                "X-User-ID",
+                                jwt_token_manager.clone(),
+                            ))
+                            .route("/ws", get().to(handlers::ws::index)),
+                    ),
             )
     })
     .bind(config.listen_address)
