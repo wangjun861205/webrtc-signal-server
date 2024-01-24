@@ -1,4 +1,5 @@
 pub mod handlers;
+pub mod messages;
 pub mod middlewares;
 
 use handlers::ws::WS;

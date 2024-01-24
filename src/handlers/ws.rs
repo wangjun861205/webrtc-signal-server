@@ -1,8 +1,8 @@
 use actix::{fut::wrap_future, Addr};
 use actix_web::{web::Data, web::Payload, Error, HttpRequest, HttpResponse};
 use actix_web_actors::ws;
-use std::collections::HashMap;
 use std::sync::Arc;
+use std::{collections::HashMap, io::BufReader};
 use tokio::sync::RwLock;
 
 use actix::{Actor, AsyncContext, Message, StreamHandler};
@@ -71,6 +71,7 @@ where
             Ok(WSMessage::Ping(msg)) => ctx.pong(&msg),
             Ok(WSMessage::Text(text)) => match from_str::<In>(&text) {
                 Ok(payload) => {
+                    let c = text.chars();
                     let auth_service = self.auth_service.clone();
                     let addrs = self.addrs.clone();
                     let self_addr = ctx.address();
