@@ -71,7 +71,6 @@ where
             Ok(WSMessage::Ping(msg)) => ctx.pong(&msg),
             Ok(WSMessage::Text(text)) => match from_str::<In>(&text) {
                 Ok(payload) => {
-                    let c = text.chars();
                     let auth_service = self.auth_service.clone();
                     let addrs = self.addrs.clone();
                     let self_addr = ctx.address();
