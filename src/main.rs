@@ -1,25 +1,21 @@
 pub mod handlers;
 pub mod messages;
 pub mod middlewares;
+pub mod ws;
 
-use handlers::ws::WS;
 use std::{collections::HashMap, sync::Arc};
+use ws::WS;
 
 use actix::Addr;
 use actix_web::{
     middleware::Logger,
-    web::{get, post, scope, Data},
+    web::{get, scope, Data},
     App, HttpServer,
 };
-use auth_service::{
-    core::service::Service as AuthService, hashers::sha::ShaHasher,
-    middlewares::actix_web::AuthTokenMiddleware, repositories::memory::MemoryRepository,
-    token_managers::jwt::JWTTokenManager,
-};
+use auth_service::{core::service::Service as AuthService, hashers::sha::ShaHasher, repositories::memory::MemoryRepository, token_managers::jwt::JWTTokenManager};
 use hmac::{Hmac, Mac};
-use middlewares::{cors::CORSMiddleware, utf8::UTF8Middleware};
+use middlewares::cors::CORSMiddleware;
 use nb_from_env::{FromEnv, FromEnvDerive};
-use sha2::Sha256;
 use tokio::sync::RwLock;
 
 #[derive(FromEnvDerive)]
@@ -28,11 +24,7 @@ struct Config {
     auth_token_secret: String,
 }
 
-type AddrMap = Arc<
-    RwLock<
-        HashMap<String, Addr<WS<MemoryRepository, ShaHasher, JWTTokenManager<Hmac<sha2::Sha256>>>>>,
-    >,
->;
+type AddrMap = Arc<RwLock<HashMap<String, Addr<WS<MemoryRepository, ShaHasher, JWTTokenManager<Hmac<sha2::Sha256>>>>>>>;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -42,10 +34,7 @@ async fn main() -> std::io::Result<()> {
     let map: AddrMap = Arc::new(RwLock::new(HashMap::new()));
     let auth_repository = MemoryRepository::default();
     let auth_hasher = ShaHasher {};
-    let jwt_token_manager: JWTTokenManager<Hmac<sha2::Sha256>> = JWTTokenManager::new(
-        Hmac::new_from_slice(config.auth_token_secret.as_bytes())
-            .expect("invalid auth token secret"),
-    );
+    let jwt_token_manager: JWTTokenManager<Hmac<sha2::Sha256>> = JWTTokenManager::new(Hmac::new_from_slice(config.auth_token_secret.as_bytes()).expect("invalid auth token secret"));
     let auth_service = AuthService::new(auth_repository, auth_hasher, jwt_token_manager.clone());
     HttpServer::new(move || {
         App::new()
@@ -53,45 +42,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::new(map.clone()))
             .wrap(CORSMiddleware)
             .wrap(Logger::default())
-            .service(
-                scope("/apis/v1")
-                    .wrap(UTF8Middleware)
-                    .service(
-                        scope("/auth")
-                            .route(
-                                "/login",
-                                post().to(handlers::auth::login::<
-                                    MemoryRepository,
-                                    ShaHasher,
-                                    JWTTokenManager<Hmac<Sha256>>,
-                                >),
-                            )
-                            .route(
-                                "/signup",
-                                post().to(handlers::auth::signup::<
-                                    MemoryRepository,
-                                    ShaHasher,
-                                    JWTTokenManager<Hmac<Sha256>>,
-                                >),
-                            ),
-                    )
-                    .service(
-                        scope("")
-                            // .wrap(AuthTokenMiddleware::new(
-                            //     "X-Auth-Token",
-                            //     "X-User-ID",
-                            //     jwt_token_manager.clone(),
-                            // ))
-                            .route(
-                                "/ws",
-                                get().to(handlers::ws::index::<
-                                    MemoryRepository,
-                                    ShaHasher,
-                                    JWTTokenManager<Hmac<sha2::Sha256>>,
-                                >),
-                            ),
-                    ),
-            )
+            .service(scope("/apis/v1").service(scope("").route("/ws", get().to(ws::index::<MemoryRepository, ShaHasher, JWTTokenManager<Hmac<sha2::Sha256>>>))))
     })
     .bind(config.listen_address)
     .expect("failed to bind to listen address")

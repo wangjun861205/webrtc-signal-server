@@ -29,12 +29,7 @@ pub struct Out {
 }
 
 impl Out {
-    pub fn new(
-        from: impl Into<String>,
-        status_code: u16,
-        typ: ResponseType,
-        payload: impl Into<String>,
-    ) -> Self {
+    pub fn new(from: impl Into<String>, status_code: u16, typ: ResponseType, payload: impl Into<String>) -> Self {
         Self {
             from: from.into(),
             status_code,
@@ -88,19 +83,12 @@ where
         let addrs = self.addrs.clone();
         ctx.spawn(wrap_future(async move {
             match auth_service.token_manager.verify_token(msg.token).await {
-                Err(e) => {
-                    self_addr.do_send(Out::new("server", 403, ResponseType::Error, e.to_string()))
-                }
+                Err(e) => self_addr.do_send(Out::new("server", 403, ResponseType::Error, e.to_string())),
                 Ok(id) => {
                     if msg.to == "server" {
                         match from_str::<ControlMessage>(&msg.payload) {
                             Err(e) => {
-                                self_addr.do_send(Out::new(
-                                    "server",
-                                    400,
-                                    ResponseType::Error,
-                                    e.to_string(),
-                                ));
+                                self_addr.do_send(Out::new("server", 400, ResponseType::Error, e.to_string()));
                             }
                             Ok(msg) => match msg.typ {
                                 ControlMessageType::Greet => {
@@ -109,15 +97,7 @@ where
                                         "server",
                                         200,
                                         ResponseType::GreetResponse,
-                                        to_string(
-                                            &addrs
-                                                .read()
-                                                .await
-                                                .keys()
-                                                .map(|k| k.to_owned())
-                                                .collect::<Vec<String>>(),
-                                        )
-                                        .unwrap(),
+                                        to_string(&addrs.read().await.keys().map(|k| k.to_owned()).collect::<Vec<String>>()).unwrap(),
                                     ));
                                 }
                             },
@@ -131,12 +111,7 @@ where
                         addr.do_send(Out::new(id, 200, ResponseType::Message, msg.payload));
                         return;
                     }
-                    self_addr.do_send(Out::new(
-                        "server",
-                        404,
-                        ResponseType::Error,
-                        "invalid destination",
-                    ));
+                    self_addr.do_send(Out::new("server", 404, ResponseType::Error, "invalid destination"));
                 }
             }
         }));
