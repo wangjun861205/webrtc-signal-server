@@ -1,6 +1,6 @@
 pub mod handlers;
 pub mod messages;
-pub mod middlewares;
+// pub mod middlewares;
 pub mod ws;
 
 use std::{collections::HashMap, sync::Arc};
@@ -14,7 +14,7 @@ use actix_web::{
 };
 use auth_service::{core::service::Service as AuthService, hashers::sha::ShaHasher, repositories::memory::MemoryRepository, token_managers::jwt::JWTTokenManager};
 use hmac::{Hmac, Mac};
-use middlewares::cors::CORSMiddleware;
+// use middlewares::cors::CORSMiddleware;
 use nb_from_env::{FromEnv, FromEnvDerive};
 use tokio::sync::RwLock;
 
@@ -40,7 +40,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(Data::new(auth_service.clone()))
             .app_data(Data::new(map.clone()))
-            .wrap(CORSMiddleware)
+            // .wrap(CORSMiddleware)
             .wrap(Logger::default())
             .service(scope("/apis/v1").service(scope("").route("/ws", get().to(ws::index::<MemoryRepository, ShaHasher, JWTTokenManager<Hmac<sha2::Sha256>>>))))
     })
