@@ -1,18 +1,18 @@
 pub mod handlers;
-pub mod messages;
-// pub mod middlewares;
 pub mod ws;
 
 use std::{collections::HashMap, sync::Arc};
-use ws::WS;
+use ws::actor::WS;
 
 use actix::Addr;
 use actix_web::{
     middleware::Logger,
-    web::{get, scope, Data},
+    web::{get, post, scope, Data},
     App, HttpServer,
 };
-use auth_service::{core::service::Service as AuthService, hashers::sha::ShaHasher, repositories::memory::MemoryRepository, token_managers::jwt::JWTTokenManager};
+use auth_service::{
+    core::service::Service as AuthService, hashers::sha::ShaHasher, middlewares::actix_web::AuthTokenMiddleware, repositories::memory::MemoryRepository, token_managers::jwt::JWTTokenManager,
+};
 use hmac::{Hmac, Mac};
 // use middlewares::cors::CORSMiddleware;
 use nb_from_env::{FromEnv, FromEnvDerive};
@@ -42,7 +42,19 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::new(map.clone()))
             // .wrap(CORSMiddleware)
             .wrap(Logger::default())
-            .service(scope("/apis/v1").service(scope("").route("/ws", get().to(ws::index::<MemoryRepository, ShaHasher, JWTTokenManager<Hmac<sha2::Sha256>>>))))
+            .service(
+                scope("/apis/v1").service(
+                    scope("")
+                        .route("/login", post().to(handlers::login::<MemoryRepository, ShaHasher, JWTTokenManager<Hmac<sha2::Sha256>>>))
+                        .route("/signup", post().to(handlers::signup::<MemoryRepository, ShaHasher, JWTTokenManager<Hmac<sha2::Sha256>>>))
+                        .route("/ws", get().to(ws::actor::index::<MemoryRepository, ShaHasher, JWTTokenManager<Hmac<sha2::Sha256>>>))
+                        .service(
+                            scope("")
+                                .wrap(AuthTokenMiddleware::new("X-Auth-Token", "X-User-ID", jwt_token_manager.clone()))
+                                .route("friends", get().to(handlers::acquire_friends)),
+                        ),
+                ),
+            )
     })
     .bind(config.listen_address)
     .expect("failed to bind to listen address")
