@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum Income {
-    Online,
     AcquireFriends,
     Message { to: String, content: String },
+    AddFriend { user_id: String },
+    FriendRequests,
+    Accept { id: String },
 }
 
 #[derive(ActixMessage)]
@@ -16,6 +18,22 @@ pub(crate) struct Online;
 #[rtype(result = "()")]
 pub(crate) struct Greet {
     pub(crate) user_id: String,
+}
+
+#[derive(ActixMessage)]
+#[rtype(result = "()")]
+pub(crate) struct AddFriend {
+    pub(crate) user_id: String,
+}
+
+#[derive(ActixMessage)]
+#[rtype(result = "()")]
+pub(crate) struct FriendRequests;
+
+#[derive(ActixMessage)]
+#[rtype(result = "()")]
+pub(crate) struct Accept {
+    pub(crate) id: String,
 }
 
 #[derive(ActixMessage)]
@@ -39,9 +57,12 @@ pub(crate) struct OutMessage {
 
 #[derive(Debug, Serialize)]
 pub(crate) enum OutcomeType {
-    Greet,
+    Online,
     AcquireFriends,
     Message,
+    AddFriend,
+    FriendRequests,
+    Accept,
     Other,
 }
 
