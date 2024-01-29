@@ -153,6 +153,10 @@ async fn main() -> std::io::Result<()> {
                                                 >,
                                             ),
                                         )
+                                        .route(
+                                            "/count",
+                                            get().to(handlers::num_of_friend_requests::<MemoryFriendsStore>)
+                                        )
                                     )
                                 ),
                         ),

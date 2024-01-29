@@ -220,3 +220,23 @@ where
         .map_err(ErrorInternalServerError)?;
     Ok(Json(reqs))
 }
+
+#[derive(Debug, Serialize)]
+pub(crate) struct NumOfFriendRequestsResp {
+    count: usize,
+}
+
+pub(crate) async fn num_of_friend_requests<F>(
+    friends_store: Data<F>,
+    UserID(uid): UserID,
+) -> Result<Json<NumOfFriendRequestsResp>>
+where
+    F: FriendsStore,
+{
+    let count = friends_store
+        .pending_friend_requests(&uid)
+        .await
+        .map_err(ErrorInternalServerError)?
+        .len();
+    Ok(Json(NumOfFriendRequestsResp { count }))
+}

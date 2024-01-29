@@ -31,7 +31,6 @@ where
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let self_addr = ctx.address();
-        let auth_service = self.auth_service.clone();
         let addrs = self.addrs.clone();
         ctx.spawn(wrap_future(async move {
             if let Some(dest_addr) = addrs.read().await.get(&to) {
