@@ -6,8 +6,11 @@ pub mod stores;
 pub mod utils;
 pub mod ws;
 
-use std::{collections::HashMap, sync::Arc};
-use stores::friends_stores::MemoryFriendsStore;
+use sqlx::{postgres::PgPoolOptions, PgPool};
+use std::{collections::HashMap, env, sync::Arc};
+use stores::friends_stores::{
+    memory::MemoryFriendsStore, postgres::store::PostgresFriendsStore,
+};
 use ws::actor::WS;
 
 use actix::Addr;
@@ -67,7 +70,15 @@ async fn main() -> std::io::Result<()> {
         auth_hasher,
         jwt_token_manager.clone(),
     );
-    let friends_store = MemoryFriendsStore::new();
+    let db_url = env::var("DATABASE_URL")
+        .expect("DATABASE_URL environment variable not set");
+    let friends_store = PostgresFriendsStore::new(
+        PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&db_url)
+            .await
+            .expect("failed to connect to postgresql"),
+    );
     HttpServer::new(move || {
         App::new()
             .app_data(Data::new(auth_service.clone()))
