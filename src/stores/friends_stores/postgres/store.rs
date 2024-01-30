@@ -18,7 +18,7 @@ impl FriendsStore for PostgresFriendsStore {
         Ok(query!(
             r#"INSERT INTO friend_requests ("from", "to", status) VALUES ($1, $2, 'Pending') 
 	    ON CONFLICT ("from", "to") DO UPDATE SET status = 'Pending'
-	    RETURNING "id" as "id: String"
+	    RETURNING id::VARCHAR
 	    "#,
             Uuid::parse_str(from).map_err(|e| Error::wrap(
                 "invalid from id".into(),
@@ -33,7 +33,7 @@ impl FriendsStore for PostgresFriendsStore {
         )
 	.fetch_one(&self.pool)
 	.await
-	.map_err(|e| Error::wrap("failed to insert friend request".into(), 500, e))?.id)
+	.map_err(|e| Error::wrap("failed to insert friend request".into(), 500, e))?.id.unwrap())
     }
     async fn get_friend_request(&self, id: &str) -> Result<FriendRequest> {
         if let Some(record) = query!(
