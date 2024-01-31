@@ -1,11 +1,11 @@
-use actix::Addr;
+use actix::{fut::wrap_future, ActorContext, Addr};
 use actix_web::{
     error::{ErrorForbidden, ErrorInternalServerError},
     web::Data,
     web::{Payload, Query},
     Error, HttpRequest, HttpResponse,
 };
-use actix_web_actors::ws;
+use actix_web_actors::ws::{self, CloseCode, CloseReason};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -114,7 +114,18 @@ where
                     ));
                 }
             },
-            Ok(WSMessage::Close(_)) => {}
+            Ok(WSMessage::Close(_)) => {
+                ctx.close(Some(CloseReason {
+                    code: CloseCode::Normal,
+                    description: Some("as proposed".into()),
+                }));
+                ctx.terminate();
+                let addrs = self.addrs.clone();
+                let self_id = self.user_id.clone();
+                ctx.wait(wrap_future(async move {
+                    addrs.write().await.remove(&self_id);
+                }));
+            }
 
             _ => {
                 ctx.notify(Outcome::<()>::error(
