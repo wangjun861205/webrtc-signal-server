@@ -1,5 +1,8 @@
 use crate::core::error::{Error, Result};
-use crate::core::store::{FriendRequest, FriendRequestStatus, FriendsStore};
+use crate::core::store::{
+    FriendRequest, FriendRequestStatus, FriendsStore, User, UserType,
+};
+use sqlx::query_as;
 use sqlx::{query, types::Uuid, PgPool};
 
 #[derive(Debug, Clone)]
@@ -128,5 +131,46 @@ impl FriendsStore for PostgresFriendsStore {
 	.fetch_one(&self.pool)
 	.await
 	.map_err(|e| Error::wrap("failed to get friend requests".into(), 500, e))?.exists.unwrap())
+    }
+
+    async fn search_user(
+        &self,
+        user_id: &str,
+        phone: &str,
+    ) -> Result<Option<crate::core::store::User>> {
+        Ok(query!(r#"
+        SELECT
+            u.id::VARCHAR AS id,
+            u.phone AS phone,
+            CASE 
+                WHEN f.status = 'Pending' THEN 'Requested'
+                WHEN t.status = 'Pending' THEN 'Requesting'
+                WHEN f.status = 'Accepted' OR t.status = 'Accepted' THEN 'Friend'
+                WHEN u.id = $1 THEN 'Myself'
+                ELSE 'Stranger'
+            END AS typ
+        FROM users AS u
+        LEFT JOIN friend_requests AS f ON u.id = f."from" AND f."to" = $1
+        LEFT JOIN friend_requests AS t ON u.id = t."to" AND t."from" = $1
+        WHERE u.phone = $2"#, 
+        Uuid::parse_str(user_id).map_err(|e| Error::wrap("invalid user id".into(), 400, e))?,
+        phone)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| Error::wrap("failed to search user".into(), 500, e))?
+        .map(|record| {
+            User {
+                id: record.id.unwrap(),
+                phone: record.phone,
+                typ: match record.typ.unwrap().as_ref() {
+                    "Requesting" => UserType::Requesting,
+                    "Requested" => UserType::Requested,
+                    "Friend" => UserType::Friend,
+                    "Myself" => UserType::Myself,
+                    "Stranger" => UserType::Stranger,
+                    _ => unreachable!(),
+                }
+            }
+        }))
     }
 }

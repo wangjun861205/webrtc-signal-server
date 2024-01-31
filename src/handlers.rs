@@ -1,10 +1,8 @@
-use std::{collections::HashSet, hash::Hash};
-
 use actix_web::{
     error::{ErrorForbidden, ErrorInternalServerError},
-    http::{header::Accept, StatusCode},
-    web::{Data, Json, Path},
-    HttpRequest, HttpResponse, Result,
+    http::StatusCode,
+    web::{Data, Json, Path, Query},
+    HttpResponse, Result,
 };
 use auth_service::core::{
     hasher::Hasher, repository::Repository, service::Service as AuthService,
@@ -13,7 +11,7 @@ use auth_service::core::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::store::{FriendRequest, FriendsStore},
+    core::store::{FriendRequest, FriendsStore, User},
     utils::UserID,
     ws::messages,
     AddrMap,
@@ -91,40 +89,24 @@ pub enum UserType {
     Myself,
 }
 
-#[derive(Debug, Serialize)]
-pub struct User {
-    id: String,
-    typ: UserType,
+#[derive(Debug, Deserialize)]
+pub struct SearchUser {
+    phone: String,
 }
 
-pub(crate) async fn all_users<F>(
-    addrs: Data<AddrMap>,
+pub(crate) async fn search_user<F>(
     friends_store: Data<F>,
     UserID(uid): UserID,
-) -> Result<Json<Vec<User>>>
+    Query(SearchUser { phone }): Query<SearchUser>,
+) -> Result<Json<Option<User>>>
 where
     F: FriendsStore,
 {
-    let ids = addrs.read().await.keys().cloned().collect::<Vec<String>>();
-    let friends: HashSet<String> = friends_store
-        .friends(&uid)
-        .await
-        .map_err(ErrorInternalServerError)?
-        .into_iter()
-        .collect();
     Ok(Json(
-        ids.into_iter()
-            .map(|id| User {
-                id: id.clone(),
-                typ: if id == uid {
-                    UserType::Myself
-                } else if friends.contains(&id) {
-                    UserType::Friend
-                } else {
-                    UserType::Stranger
-                },
-            })
-            .collect(),
+        friends_store
+            .search_user(&uid, &phone)
+            .await
+            .map_err(ErrorInternalServerError)?,
     ))
 }
 

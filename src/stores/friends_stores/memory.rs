@@ -113,4 +113,12 @@ impl FriendsStore for MemoryFriendsStore {
         }
         Ok(())
     }
+
+    async fn search_user(
+        &self,
+        phone: &str,
+        user_id: &str,
+    ) -> crate::core::error::Result<Option<crate::core::store::User>> {
+        unimplemented!()
+    }
 }

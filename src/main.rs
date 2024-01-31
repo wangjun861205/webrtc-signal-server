@@ -129,7 +129,7 @@ async fn main() -> std::io::Result<()> {
                                 ))
                                 .route(
                                     "users",
-                                    get().to(handlers::all_users::<
+                                    get().to(handlers::search_user::<
                                         PostgresFriendsStore,
                                     >),
                                 )

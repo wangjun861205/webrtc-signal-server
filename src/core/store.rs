@@ -21,6 +21,22 @@ pub struct FriendRequest {
     pub status: FriendRequestStatus,
 }
 
+#[derive(Clone, Serialize)]
+pub(crate) enum UserType {
+    Myself,
+    Friend,
+    Requesting,
+    Requested,
+    Stranger,
+}
+
+#[derive(Clone, Serialize)]
+pub(crate) struct User {
+    pub id: String,
+    pub phone: String,
+    pub typ: UserType,
+}
+
 pub trait FriendsStore {
     async fn add_friend_request(&self, from: &str, to: &str) -> Result<String>;
     async fn get_friend_request(&self, id: &str) -> Result<FriendRequest>;
@@ -32,6 +48,11 @@ pub trait FriendsStore {
     ) -> Result<Vec<FriendRequest>>;
     async fn friends(&self, user_id: &str) -> Result<Vec<String>>;
     async fn is_friend(&self, user_id: &str, friend_id: &str) -> Result<bool>;
+    async fn search_user(
+        &self,
+        user_id: &str,
+        phone: &str,
+    ) -> Result<Option<User>>;
 }
 
 pub trait AddrStore<R, H, T, F>
