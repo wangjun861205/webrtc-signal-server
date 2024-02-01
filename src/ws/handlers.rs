@@ -66,29 +66,29 @@ where
     }
 }
 
-impl<R, H, T, F> Handler<Online> for WS<R, H, T, F>
-where
-    R: Repository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
-    F: FriendsStore + Clone + Unpin + 'static,
-{
-    type Result = ();
-    fn handle(&mut self, _: Online, ctx: &mut Self::Context) -> Self::Result {
-        let addrs = self.addrs.clone();
-        let self_addr = ctx.address();
-        let self_id = self.user_id.clone();
-        let friends_store = self.friends_store.clone();
-        ctx.spawn(wrap_future(async move {
-            let friends = friends_store.friends(&self_id).await.unwrap();
-            addrs
-                .write()
-                .await
-                .insert(self_id.clone(), self_addr.clone());
-            self_addr.do_send(Outcome::success(OutcomeType::Online, friends));
-        }));
-    }
-}
+// impl<R, H, T, F> Handler<Online> for WS<R, H, T, F>
+// where
+//     R: Repository + Clone + 'static,
+//     H: Hasher + Clone + 'static,
+//     T: TokenManager + Clone + 'static,
+//     F: FriendsStore + Clone + Unpin + 'static,
+// {
+//     type Result = ();
+//     fn handle(&mut self, _: Online, ctx: &mut Self::Context) -> Self::Result {
+//         let addrs = self.addrs.clone();
+//         let self_addr = ctx.address();
+//         let self_id = self.user_id.clone();
+//         let friends_store = self.friends_store.clone();
+//         ctx.spawn(wrap_future(async move {
+//             let friends = friends_store.friends(&self_id).await.unwrap();
+//             addrs
+//                 .write()
+//                 .await
+//                 .insert(self_id.clone(), self_addr.clone());
+//             self_addr.do_send(Outcome::success(OutcomeType::Online, friends));
+//         }));
+//     }
+// }
 
 // impl<R, H, T, F> Handler<Greet> for WS<R, H, T, F>
 // where
@@ -114,31 +114,31 @@ where
 //     }
 // }
 
-impl<R, H, T, F> Handler<AcquireFriends> for WS<R, H, T, F>
-where
-    R: Repository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
-    F: FriendsStore + Clone + Unpin + 'static,
-{
-    type Result = ();
-    fn handle(
-        &mut self,
-        _: AcquireFriends,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let self_id = self.user_id.clone();
-        let self_addr = ctx.address();
-        let friends_store = self.friends_store.clone();
-        ctx.spawn(wrap_future(async move {
-            let friends = friends_store.friends(&self_id).await.unwrap();
-            self_addr.do_send(Outcome::success(
-                OutcomeType::AcquireFriends,
-                friends,
-            ));
-        }));
-    }
-}
+// impl<R, H, T, F> Handler<AcquireFriends> for WS<R, H, T, F>
+// where
+//     R: Repository + Clone + 'static,
+//     H: Hasher + Clone + 'static,
+//     T: TokenManager + Clone + 'static,
+//     F: FriendsStore + Clone + Unpin + 'static,
+// {
+//     type Result = ();
+//     fn handle(
+//         &mut self,
+//         _: AcquireFriends,
+//         ctx: &mut Self::Context,
+//     ) -> Self::Result {
+//         let self_id = self.user_id.clone();
+//         let self_addr = ctx.address();
+//         let friends_store = self.friends_store.clone();
+//         ctx.spawn(wrap_future(async move {
+//             let friends = friends_store.friends(&self_id).await.unwrap();
+//             self_addr.do_send(Outcome::success(
+//                 OutcomeType::AcquireFriends,
+//                 friends,
+//             ));
+//         }));
+//     }
+// }
 
 impl<R, H, T, F> Handler<AddFriend> for WS<R, H, T, F>
 where

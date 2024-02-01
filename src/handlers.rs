@@ -11,11 +11,17 @@ use auth_service::core::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::store::{FriendRequest, FriendsStore, User},
+    core::store::{Friend, FriendRequest, FriendsStore, User},
     utils::UserID,
     ws::messages,
     AddrMap,
 };
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct Pagination {
+    pub(crate) limit: i64,
+    pub(crate) offset: i64,
+}
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Login {
@@ -70,13 +76,14 @@ where
 pub(crate) async fn my_friends<F>(
     UserID(uid): UserID,
     friends_store: Data<F>,
-) -> Result<Json<Vec<String>>>
+    Query(Pagination { limit, offset }): Query<Pagination>,
+) -> Result<Json<Vec<Friend>>>
 where
     F: FriendsStore,
 {
     Ok(Json(
         friends_store
-            .friends(&uid)
+            .friends(&uid, limit, offset)
             .await
             .map_err(ErrorInternalServerError)?,
     ))

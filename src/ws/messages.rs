@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum Income {
-    AcquireFriends,
     Message { to: String, content: String },
     AddFriend { user_id: String },
     FriendRequests,

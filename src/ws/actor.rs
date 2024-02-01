@@ -90,9 +90,6 @@ where
             Ok(WSMessage::Ping(msg)) => ctx.pong(&msg),
             Ok(WSMessage::Text(text)) => match from_str::<Income>(&text) {
                 Ok(msg) => match msg {
-                    Income::AcquireFriends => {
-                        ctx.notify(AcquireFriends);
-                    }
                     Income::Message { to, content } => {
                         ctx.notify(InMessage {
                             user_id: self.user_id.clone(),

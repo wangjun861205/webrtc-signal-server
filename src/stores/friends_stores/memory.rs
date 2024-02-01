@@ -1,6 +1,6 @@
 use crate::core::{
     error::Error,
-    store::{FriendRequest, FriendRequestStatus, FriendsStore},
+    store::{Friend, FriendRequest, FriendRequestStatus, FriendsStore},
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -59,24 +59,27 @@ impl FriendsStore for MemoryFriendsStore {
     async fn friends(
         &self,
         user_id: &str,
-    ) -> crate::core::error::Result<Vec<String>> {
-        Ok(self
-            .requests
-            .read()
-            .await
-            .iter()
-            .filter(|r| {
-                r.status == FriendRequestStatus::Accepted
-                    && (r.from == user_id || r.to == user_id)
-            })
-            .map(|r| {
-                if r.from == user_id {
-                    r.to.clone()
-                } else {
-                    r.from.clone()
-                }
-            })
-            .collect())
+        limit: i64,
+        offset: i64,
+    ) -> crate::core::error::Result<Vec<Friend>> {
+        // Ok(self
+        //     .requests
+        //     .read()
+        //     .await
+        //     .iter()
+        //     .filter(|r| {
+        //         r.status == FriendRequestStatus::Accepted
+        //             && (r.from == user_id || r.to == user_id)
+        //     })
+        //     .map(|r| {
+        //         if r.from == user_id {
+        //             r.to.clone()
+        //         } else {
+        //             r.from.clone()
+        //         }
+        //     })
+        //     .collect())
+        unimplemented!()
     }
     async fn is_friend(
         &self,

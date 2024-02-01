@@ -1,6 +1,6 @@
 use crate::core::error::{Error, Result};
 use crate::core::store::{
-    FriendRequest, FriendRequestStatus, FriendsStore, User, UserType,
+    Friend, FriendRequest, FriendRequestStatus, FriendsStore, User, UserType,
 };
 use sqlx::query_as;
 use sqlx::{query, types::Uuid, PgPool};
@@ -108,20 +108,59 @@ impl FriendsStore for PostgresFriendsStore {
 	})
 	.collect())
     }
-    async fn friends(&self, user_id: &str) -> Result<Vec<String>> {
+    async fn friends(
+        &self,
+        user_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Friend>> {
         Ok(query!(
-		r#"SELECT id::VARCHAR FROM friend_requests WHERE status = 'Accepted' AND ("from" = $1 OR "to" = $1)"#,
-		Uuid::parse_str(user_id).map_err(|e| Error::wrap(format!("invalid to id(id: {}", user_id), 400, e))?
-	)
-	.fetch_all(&self.pool)
-	.await
-	.map_err(|e| Error::wrap("failed to get friend requests".into(), 500, e))?
-	.into_iter()
-	.map(|record| {
-		record.id.unwrap()
-	})
-	.collect())
+            r#"
+            SELECT 
+                CASE 
+                    WHEN u.fid = $1 THEN u.tid::VARCHAR
+                    ELSE u.fid::VARCHAR
+                END AS id,
+                CASE 
+                    WHEN u.fid = $1 THEN u.tphone
+                    ELSE u.fphone
+                END AS phone
+            FROM (
+                SELECT
+                    f.id AS fid,
+                    f.phone AS fphone,
+                    t.id AS tid,
+                    t.phone AS tphone
+                FROM
+                    users AS f
+                    JOIN friend_requests AS fr ON fr."from" = f.id
+                    JOIN users AS t ON fr."to" = t.id
+                WHERE fr.status = 'Accepted' AND (fr."from" = $1 OR fr."to" = $1)
+                LIMIT $2
+                OFFSET $3
+            ) AS u
+            "#,
+            Uuid::parse_str(user_id).map_err(|e| Error::wrap(
+                format!("invalid to id(id: {}", user_id),
+                400,
+                e
+            ))?,
+            limit,
+            offset
+        )
+       .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            Error::wrap("failed to get friend requests".into(), 500, e)
+        })?
+        .into_iter()
+        .map(|record| Friend {
+            id: record.id.unwrap(),
+            phone: record.phone.unwrap(),
+        })
+        .collect())
     }
+
     async fn is_friend(&self, user_id: &str, friend_id: &str) -> Result<bool> {
         Ok(query!(
 		r#"SELECT EXISTS(SELECT 1 FROM friend_requests WHERE status = 'Accepted' AND ("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1))"#,

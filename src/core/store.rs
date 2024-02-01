@@ -37,6 +37,12 @@ pub(crate) struct User {
     pub typ: UserType,
 }
 
+#[derive(Clone, Serialize)]
+pub(crate) struct Friend {
+    pub id: String,
+    pub phone: String,
+}
+
 pub trait FriendsStore {
     async fn add_friend_request(&self, from: &str, to: &str) -> Result<String>;
     async fn get_friend_request(&self, id: &str) -> Result<FriendRequest>;
@@ -46,7 +52,12 @@ pub trait FriendsStore {
         &self,
         to: &str,
     ) -> Result<Vec<FriendRequest>>;
-    async fn friends(&self, user_id: &str) -> Result<Vec<String>>;
+    async fn friends(
+        &self,
+        user_id: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<Friend>>;
     async fn is_friend(&self, user_id: &str, friend_id: &str) -> Result<bool>;
     async fn search_user(
         &self,
