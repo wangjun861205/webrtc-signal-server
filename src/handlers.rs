@@ -44,7 +44,7 @@ where
     T: TokenManager + Clone,
 {
     let token = auth_service
-        .login_by_password(&phone, &password)
+        .login(&phone, &password)
         .await
         .map_err(ErrorForbidden)?;
 

@@ -125,7 +125,7 @@ async fn main() -> std::io::Result<()> {
                                 .wrap(AuthTokenMiddleware::new(
                                     "X-Auth-Token",
                                     "X-User-ID",
-                                    jwt_token_manager.clone(),
+                                    auth_service.clone(),
                                 ))
                                 .route(
                                     "users",
