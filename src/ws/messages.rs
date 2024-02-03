@@ -7,6 +7,7 @@ pub(crate) enum Income {
     AddFriend { user_id: String },
     FriendRequests,
     Accept { id: String },
+    ChatMessage { to: String, content: String },
 }
 
 #[derive(ActixMessage)]
@@ -56,9 +57,8 @@ pub(crate) struct OutMessage {
 
 #[derive(Debug, Serialize)]
 pub(crate) enum OutcomeType {
-    Online,
-    AcquireFriends,
     Message,
+    ChatMessage,
     AddFriend,
     FriendRequests,
     Accept,
@@ -98,4 +98,18 @@ where
             data: None,
         }
     }
+}
+
+#[derive(Debug, Serialize, ActixMessage)]
+#[rtype(result = "()")]
+pub(crate) struct InChatMessage {
+    pub(crate) to: String,
+    pub(crate) content: String,
+}
+
+#[derive(Debug, Serialize, ActixMessage)]
+#[rtype(result = "()")]
+pub(crate) struct OutChatMessage {
+    pub(crate) from: String,
+    pub(crate) content: String,
 }

@@ -2,7 +2,8 @@ use crate::core::error::Result;
 use crate::ws::actor::WS;
 use actix::Addr;
 use auth_service::core::{
-    hasher::Hasher, repository::Repository, token_manager::TokenManager,
+    hasher::Hasher, repository::Repository as AuthRepository,
+    token_manager::TokenManager,
 };
 use serde::Serialize;
 
@@ -43,7 +44,23 @@ pub(crate) struct Friend {
     pub phone: String,
 }
 
-pub trait FriendsStore {
+#[derive(Clone, Serialize)]
+pub(crate) struct ChatMessage {
+    pub(crate) id: String,
+    pub(crate) from: String,
+    pub(crate) to: String,
+    pub(crate) content: String,
+    pub(crate) is_out: bool,
+}
+
+#[derive(Clone, Serialize)]
+pub(crate) struct InsertChatMessage {
+    pub(crate) from: String,
+    pub(crate) to: String,
+    pub(crate) content: String,
+}
+
+pub trait Repository {
     async fn add_friend_request(&self, from: &str, to: &str) -> Result<String>;
     async fn get_friend_request(&self, id: &str) -> Result<FriendRequest>;
     async fn accept_friend_request(&self, id: &str) -> Result<()>;
@@ -64,14 +81,26 @@ pub trait FriendsStore {
         user_id: &str,
         phone: &str,
     ) -> Result<Option<User>>;
+
+    async fn latest_chat_messages_with_others(
+        &self,
+        self_id: &str,
+        other_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ChatMessage>>;
+
+    async fn insert_chat_message(
+        &self,
+        create: &InsertChatMessage,
+    ) -> Result<String>;
 }
 
 pub trait AddrStore<R, H, T, F>
 where
-    R: Repository + Clone + 'static,
+    R: AuthRepository + Clone + 'static,
     H: Hasher + Clone + 'static,
     T: TokenManager + Clone + 'static,
-    F: FriendsStore + Clone + Unpin + 'static,
+    F: Repository + Clone + Unpin + 'static,
 {
     async fn add_addr(
         &self,

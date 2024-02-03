@@ -1,22 +1,12 @@
+use super::PostgresRepository;
 use crate::core::error::{Error, Result};
-use crate::core::store::{
-    Friend, FriendRequest, FriendRequestStatus, FriendsStore, User, UserType,
+use crate::core::repository::{
+    ChatMessage, Friend, FriendRequest, FriendRequestStatus, InsertChatMessage,
+    Repository, User, UserType,
 };
-use sqlx::query_as;
-use sqlx::{query, types::Uuid, PgPool};
+use sqlx::{query, query_scalar, types::Uuid};
 
-#[derive(Debug, Clone)]
-pub(crate) struct PostgresFriendsStore {
-    pool: PgPool,
-}
-
-impl PostgresFriendsStore {
-    pub(crate) fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-impl FriendsStore for PostgresFriendsStore {
+impl Repository for PostgresRepository {
     async fn add_friend_request(&self, from: &str, to: &str) -> Result<String> {
         Ok(query!(
             r#"INSERT INTO friend_requests ("from", "to", status) VALUES ($1, $2, 'Pending') 
@@ -176,7 +166,7 @@ impl FriendsStore for PostgresFriendsStore {
         &self,
         user_id: &str,
         phone: &str,
-    ) -> Result<Option<crate::core::store::User>> {
+    ) -> Result<Option<crate::core::repository::User>> {
         Ok(query!(r#"
         SELECT
             u.id::VARCHAR AS id,
@@ -211,5 +201,65 @@ impl FriendsStore for PostgresFriendsStore {
                 }
             }
         }))
+    }
+
+    async fn latest_chat_messages_with_others(
+        &self,
+        self_id: &str,
+        other_id: &str,
+        limit: i64,
+    ) -> Result<Vec<crate::core::repository::ChatMessage>> {
+        Ok(query!(
+            r#"
+                SELECT 
+                    id::VARCHAR AS id,
+                    "from"::VARCHAR AS "from",
+                    "to"::VARCHAR AS "to",
+                    content AS content,
+                    CASE
+                        WHEN "from" = $1 THEN true
+                        ELSE false
+                    END AS is_out
+                FROM 
+                    messages
+                WHERE 
+                    ("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)
+                ORDER BY sent_at DESC
+                LIMIT $3
+            "#,
+            Uuid::parse_str(self_id).unwrap(),
+            Uuid::parse_str(other_id).unwrap(),
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            Error::wrap("failed to get latest messages".into(), 500, e)
+        })?
+        .into_iter()
+        .map(|record| ChatMessage {
+            id: record.id.unwrap(),
+            from: record.from.unwrap(),
+            to: record.to.unwrap(),
+            content: record.content,
+            is_out: record.is_out.unwrap(),
+        })
+        .collect())
+    }
+
+    async fn insert_chat_message(
+        &self,
+        create: &InsertChatMessage,
+    ) -> Result<String> {
+        Ok(query_scalar!(
+            r#"INSERT INTO messages ("from", "to", content) VALUES ($1, $2, $3) RETURNING id::VARCHAR"#,
+            Uuid::parse_str(&create.from).unwrap(),
+            Uuid::parse_str(&create.to).unwrap(),
+            &create.content,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| Error::wrap("failed to insert message".into(), 500, e))?
+        .unwrap())
     }
 }

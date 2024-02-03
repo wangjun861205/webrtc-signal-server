@@ -1,37 +1,24 @@
-use actix::WrapFuture;
+use super::PostgresRepository;
 use auth_service::core::{
-    entities::{CreateUser, User},
-    error::Error,
-    repository::Repository,
+    entities::CreateUser, error::Error, repository::Repository,
 };
-use sqlx::{query, Execute, PgPool};
-
-#[derive(Debug, Clone)]
-pub(crate) struct PostgresRepository {
-    pool: PgPool,
-}
-
-impl PostgresRepository {
-    pub(crate) fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
+use sqlx::{query, query_scalar};
 
 impl Repository for PostgresRepository {
-    async fn get_id_by_credential(
+    async fn exists_credential(
         &self,
         identifier: &str,
         password: &str,
-    ) -> Result<Option<String>, auth_service::core::error::Error> {
-        Ok(query!(
-            "SELECT id::VARCHAR FROM users WHERE phone = $1 AND password = $2",
+    ) -> Result<bool, Error> {
+        Ok(query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE phone = $1 AND password = $2)",
             identifier,
             password,
         )
-        .fetch_optional(&self.pool)
+        .fetch_one(&self.pool)
         .await
         .map_err(|e| Error::FailedToGetID(Box::new(e)))?
-        .map(|r| r.id.unwrap()))
+        .unwrap())
     }
 
     async fn get_id_by_key(

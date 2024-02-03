@@ -16,24 +16,24 @@ use actix_web_actors::ws::{
     Message as WSMessage, ProtocolError, WebsocketContext,
 };
 use auth_service::core::{
-    hasher::Hasher, repository::Repository, service::Service as AuthService,
-    token_manager::TokenManager,
+    hasher::Hasher, repository::Repository as AuthRepository,
+    service::Service as AuthService, token_manager::TokenManager,
 };
 use serde_json::from_str;
 
-use crate::{core::store::FriendsStore, ws::messages::InMessage};
+use crate::{core::repository::Repository, ws::messages::InMessage};
 
 use super::messages::{
-    Accept, AcquireFriends, AddFriend, FriendRequests, Income, Online, Outcome,
-    OutcomeType,
+    Accept, AcquireFriends, AddFriend, FriendRequests, InChatMessage, Income,
+    Online, Outcome, OutcomeType,
 };
 
 pub struct WS<R, H, T, F>
 where
-    R: Repository + Clone + 'static,
+    R: AuthRepository + Clone + 'static,
     H: Hasher + Clone + 'static,
     T: TokenManager + Clone + 'static,
-    F: FriendsStore + Clone + Unpin + 'static,
+    F: Repository + Clone + Unpin + 'static,
 {
     pub(crate) user_id: String,
     pub(crate) addrs: Arc<RwLock<HashMap<String, Addr<Self>>>>,
@@ -43,10 +43,10 @@ where
 
 impl<R, H, T, F> WS<R, H, T, F>
 where
-    R: Repository + Clone + 'static,
+    R: AuthRepository + Clone + 'static,
     H: Hasher + Clone + 'static,
     T: TokenManager + Clone + 'static,
-    F: FriendsStore + Clone + Unpin + 'static,
+    F: Repository + Clone + Unpin + 'static,
 {
     pub fn new(
         user_id: String,
@@ -65,10 +65,10 @@ where
 
 impl<R, H, T, F> Actor for WS<R, H, T, F>
 where
-    R: Repository + Clone + 'static,
+    R: AuthRepository + Clone + 'static,
     H: Hasher + Clone + 'static,
     T: TokenManager + Clone + 'static,
-    F: FriendsStore + Clone + Unpin + 'static,
+    F: Repository + Clone + Unpin + 'static,
 {
     type Context = WebsocketContext<Self>;
 }
@@ -76,10 +76,10 @@ where
 impl<R, H, T, F> StreamHandler<Result<WSMessage, ProtocolError>>
     for WS<R, H, T, F>
 where
-    R: Repository + Clone + 'static,
+    R: AuthRepository + Clone + 'static,
     H: Hasher + Clone + 'static,
     T: TokenManager + Clone + 'static,
-    F: FriendsStore + Clone + Unpin + 'static,
+    F: Repository + Clone + Unpin + 'static,
 {
     fn handle(
         &mut self,
@@ -96,6 +96,9 @@ where
                             to,
                             content,
                         });
+                    }
+                    Income::ChatMessage { to, content } => {
+                        ctx.notify(InChatMessage { to, content })
                     }
                     Income::AddFriend { user_id } => {
                         ctx.notify(AddFriend { user_id })
@@ -151,10 +154,10 @@ pub(crate) async fn index<R, H, T, F>(
     Query(Index { auth_token }): Query<Index>,
 ) -> Result<HttpResponse, Error>
 where
-    R: Repository + Clone + 'static,
+    R: AuthRepository + Clone + 'static,
     H: Hasher + Clone + 'static,
     T: TokenManager + Clone + 'static,
-    F: FriendsStore + Clone + Unpin + 'static,
+    F: Repository + Clone + Unpin + 'static,
 {
     let user_id = auth_service
         .verify_token(&auth_token)

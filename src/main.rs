@@ -8,10 +8,7 @@ pub mod ws;
 
 use sqlx::postgres::PgPoolOptions;
 use std::{collections::HashMap, env, sync::Arc};
-use stores::{
-    auth_repositories::postgres::repository::PostgresRepository,
-    friends_stores::postgres::store::PostgresFriendsStore,
-};
+use stores::postgres::PostgresRepository;
 use ws::actor::WS;
 
 use actix::Addr;
@@ -45,7 +42,7 @@ type AddrMap = Arc<
                     PostgresRepository,
                     ShaHasher,
                     JWTTokenManager<Hmac<sha2::Sha256>>,
-                    PostgresFriendsStore,
+                    PostgresRepository,
                 >,
             >,
         >,
@@ -78,7 +75,7 @@ async fn main() -> std::io::Result<()> {
         auth_hasher,
         jwt_token_manager.clone(),
     );
-    let friends_store = PostgresFriendsStore::new(
+    let friends_store = PostgresRepository::new(
         PgPoolOptions::new()
             .max_connections(5)
             .connect(&db_url)
@@ -117,7 +114,7 @@ async fn main() -> std::io::Result<()> {
                                 PostgresRepository,
                                 ShaHasher,
                                 JWTTokenManager<Hmac<sha2::Sha256>>,
-                                PostgresFriendsStore,
+                                PostgresRepository,
                             >),
                         )
                         .service(
@@ -130,7 +127,7 @@ async fn main() -> std::io::Result<()> {
                                 .route(
                                     "users",
                                     get().to(handlers::search_user::<
-                                        PostgresFriendsStore,
+                                        PostgresRepository,
                                     >),
                                 )
                                 .service(
@@ -138,7 +135,7 @@ async fn main() -> std::io::Result<()> {
                                     .route(
                                         "",
                                         get().to(handlers::my_friends::<
-                                            PostgresFriendsStore,
+                                            PostgresRepository,
                                         >),
                                     )
                                     .service(
@@ -146,19 +143,19 @@ async fn main() -> std::io::Result<()> {
                                         .route(
                                         "",
                                         post().to(handlers::add_friend::<
-                                            PostgresFriendsStore,
+                                            PostgresRepository,
                                         >))
                                         .route(
                                             "",
                                             get().to(handlers::my_requests::<
-                                                PostgresFriendsStore,
+                                                PostgresRepository,
                                             >),
                                         )
                                         .route(
                                             "/{id}/accept",
                                             put().to(
                                                 handlers::accept_request::<
-                                                    PostgresFriendsStore,
+                                                    PostgresRepository,
                                                 >,
                                             ),
                                         )
@@ -166,17 +163,21 @@ async fn main() -> std::io::Result<()> {
                                             "/{id}/reject",
                                             put().to(
                                                 handlers::reject_request::<
-                                                    PostgresFriendsStore,
+                                                    PostgresRepository,
                                                 >,
                                             ),
                                         )
                                         .route(
                                             "/count",
-                                            get().to(handlers::num_of_friend_requests::<PostgresFriendsStore>)
+                                            get().to(handlers::num_of_friend_requests::<PostgresRepository>)
                                         )
                                     )
-                                ),
-                        ),
+                                )
+                                .service(
+                                    scope("/chat_messages")
+                                    .route("", get().to(handlers::latest_messages_with_others::<PostgresRepository>))
+                                )
+                        )
                 ),
             )
     })

@@ -5,13 +5,15 @@ use actix_web::{
     HttpResponse, Result,
 };
 use auth_service::core::{
-    hasher::Hasher, repository::Repository, service::Service as AuthService,
-    token_manager::TokenManager,
+    hasher::Hasher, repository::Repository as AuthRepository,
+    service::Service as AuthService, token_manager::TokenManager,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::store::{Friend, FriendRequest, FriendsStore, User},
+    core::repository::{
+        ChatMessage, Friend, FriendRequest, InsertChatMessage, Repository, User,
+    },
     utils::UserID,
     ws::messages,
     AddrMap,
@@ -39,7 +41,7 @@ pub(crate) async fn login<R, H, T>(
     Json(Login { phone, password }): Json<Login>,
 ) -> Result<Json<LoginResp>>
 where
-    R: Repository + Clone,
+    R: AuthRepository + Clone,
     H: Hasher + Clone,
     T: TokenManager + Clone,
 {
@@ -62,7 +64,7 @@ pub(crate) async fn signup<R, H, T>(
     Json(Signup { phone, password }): Json<Signup>,
 ) -> Result<HttpResponse>
 where
-    R: Repository + Clone,
+    R: AuthRepository + Clone,
     H: Hasher + Clone,
     T: TokenManager + Clone,
 {
@@ -79,7 +81,7 @@ pub(crate) async fn my_friends<F>(
     Query(Pagination { limit, offset }): Query<Pagination>,
 ) -> Result<Json<Vec<Friend>>>
 where
-    F: FriendsStore,
+    F: Repository,
 {
     Ok(Json(
         friends_store
@@ -107,7 +109,7 @@ pub(crate) async fn search_user<F>(
     Query(SearchUser { phone }): Query<SearchUser>,
 ) -> Result<Json<Option<User>>>
 where
-    F: FriendsStore,
+    F: Repository,
 {
     Ok(Json(
         friends_store
@@ -134,7 +136,7 @@ pub(crate) async fn add_friend<F>(
     Json(AddFriend { friend_id }): Json<AddFriend>,
 ) -> Result<Json<AddFriendResp>>
 where
-    F: FriendsStore,
+    F: Repository,
 {
     let id = friends_store
         .add_friend_request(&uid, &friend_id)
@@ -153,7 +155,7 @@ pub(crate) async fn accept_request<F>(
     id: Path<(String,)>,
 ) -> Result<HttpResponse>
 where
-    F: FriendsStore,
+    F: Repository,
 {
     let req = friends_store
         .get_friend_request(&id.0)
@@ -180,7 +182,7 @@ pub(crate) async fn reject_request<F>(
     id: Path<(String,)>,
 ) -> Result<HttpResponse>
 where
-    F: FriendsStore,
+    F: Repository,
 {
     let req = friends_store
         .get_friend_request(&id.0)
@@ -201,7 +203,7 @@ pub(crate) async fn my_requests<F>(
     UserID(uid): UserID,
 ) -> Result<Json<Vec<FriendRequest>>>
 where
-    F: FriendsStore,
+    F: Repository,
 {
     let reqs = friends_store
         .pending_friend_requests(&uid)
@@ -220,7 +222,7 @@ pub(crate) async fn num_of_friend_requests<F>(
     UserID(uid): UserID,
 ) -> Result<Json<NumOfFriendRequestsResp>>
 where
-    F: FriendsStore,
+    F: Repository,
 {
     let count = friends_store
         .pending_friend_requests(&uid)
@@ -228,4 +230,26 @@ where
         .map_err(ErrorInternalServerError)?
         .len();
     Ok(Json(NumOfFriendRequestsResp { count }))
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LatestChatMessagesWithOthers {
+    to: String,
+}
+
+pub(crate) async fn latest_messages_with_others<F>(
+    repository: Data<F>,
+    UserID(uid): UserID,
+    Query(LatestChatMessagesWithOthers { to }): Query<
+        LatestChatMessagesWithOthers,
+    >,
+) -> Result<Json<Vec<ChatMessage>>>
+where
+    F: Repository,
+{
+    let messages = repository
+        .latest_chat_messages_with_others(&uid, &to, 20)
+        .await
+        .map_err(|e| ErrorInternalServerError(e))?;
+    Ok(Json(messages))
 }
