@@ -1,4 +1,5 @@
 pub(crate) mod auth;
+pub(crate) mod upload;
 pub(crate) mod store;
 
 use sqlx::PgPool;
