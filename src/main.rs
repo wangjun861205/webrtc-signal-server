@@ -6,7 +6,7 @@ pub mod stores;
 pub mod utils;
 pub mod ws;
 
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{postgres::PgPoolOptions, Postgres};
 use std::{collections::HashMap, env, sync::Arc};
 use stores::postgres::PostgresRepository;
 use ws::actor::WS;
@@ -25,7 +25,9 @@ use auth_service::{
 use hmac::{Hmac, Mac};
 use nb_from_env::{FromEnv, FromEnvDerive};
 use tokio::sync::RwLock;
-use upload_service::{stores::local_fs::LocalFSStore,  core::service::Service as UploadService };
+use upload_service::{
+    core::service::Service as UploadService, stores::local_fs::LocalFSStore,
+};
 
 #[derive(FromEnvDerive)]
 struct Config {
@@ -58,10 +60,10 @@ async fn main() -> std::io::Result<()> {
     let db_url = env::var("DATABASE_URL")
         .expect("DATABASE_URL environment variable not set");
     let pg_pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(&db_url)
-            .await
-            .expect("failed to connect to postgresql");
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .expect("failed to connect to postgresql");
     let repository = PostgresRepository::new(pg_pool);
     let auth_hasher = ShaHasher {};
     let jwt_token_manager: JWTTokenManager<Hmac<sha2::Sha256>> =
@@ -74,7 +76,13 @@ async fn main() -> std::io::Result<()> {
         auth_hasher,
         jwt_token_manager.clone(),
     );
-    let upload_service = UploadService::new(repository.clone(), LocalFSStore::new(env::var("UPLOAD_STORE_PATH").expect("Environment varialble UPLOAD_STORE_PATH not set")));
+    let upload_service = UploadService::new(
+        repository.clone(),
+        LocalFSStore::new(
+            env::var("UPLOAD_STORE_PATH")
+                .expect("Environment varialble UPLOAD_STORE_PATH not set"),
+        ),
+    );
     HttpServer::new(move || {
         App::new()
             .app_data(Data::new(auth_service.clone()))
@@ -114,9 +122,22 @@ async fn main() -> std::io::Result<()> {
                         "X-User-ID",
                         auth_service.clone(),
                     ))
-                    .route(
-                        "users",
-                        get().to(handlers::search_user::<PostgresRepository>),
+                    .service(
+                        scope("/users")
+                            .route(
+                                "",
+                                get().to(handlers::search_user::<
+                                    PostgresRepository,
+                                >),
+                            )
+                            .route(
+                                "/{uid}/avatar",
+                                get().to(handlers::get_user_avatar::<
+                                    PostgresRepository,
+                                    PostgresRepository,
+                                    LocalFSStore,
+                                >),
+                            ),
                     )
                     .service(
                         scope("friends")
@@ -168,10 +189,40 @@ async fn main() -> std::io::Result<()> {
                             PostgresRepository,
                         >),
                     ))
-                    .service(scope("/uploads")
-                    .route("", post().to(handlers::upload::<PostgresRepository, LocalFSStore>))
-                    .route("/{id}", get().to(handlers::download::<PostgresRepository, LocalFSStore>))
-                ),
+                    .service(
+                        scope("/uploads")
+                            .route(
+                                "",
+                                post().to(handlers::upload::<
+                                    PostgresRepository,
+                                    LocalFSStore,
+                                >),
+                            )
+                            .route(
+                                "/{id}",
+                                get().to(handlers::download::<
+                                    PostgresRepository,
+                                    LocalFSStore,
+                                >),
+                            ),
+                    )
+                    .service(
+                        scope("/me")
+                            .route(
+                                "/avatar",
+                                get().to(handlers::my_avatar::<
+                                    PostgresRepository,
+                                    PostgresRepository,
+                                    LocalFSStore,
+                                >),
+                            )
+                            .route(
+                                "/avatar",
+                                put().to(handlers::upsert_avatar::<
+                                    PostgresRepository,
+                                >),
+                            ),
+                    ),
             )
     })
     .bind(config.listen_address)
