@@ -3,6 +3,7 @@ use auth_service::core::{
     entities::CreateUser, error::Error, repository::Repository,
 };
 use sqlx::{query, query_scalar};
+use uuid::Uuid;
 
 impl Repository for PostgresRepository {
     async fn exists_credential(
@@ -30,7 +31,7 @@ impl Repository for PostgresRepository {
                 .fetch_optional(&self.pool)
                 .await
                 .map_err(|e| Error::FailedToGetID(Box::new(e)))?
-                .map(|r| r.id.unwrap()),
+                .map(|r| r.id),
         )
     }
 
@@ -77,7 +78,8 @@ impl Repository for PostgresRepository {
 
     async fn insert_user(&self, user: &CreateUser) -> Result<String, Error> {
         let id = sqlx::query!(
-            "INSERT INTO users (phone, password, password_salt) VALUES ($1, $2, $3) RETURNING id::VARCHAR",
+            "INSERT INTO users (id, phone, password, password_salt) VALUES ($1, $2, $3, $4) RETURNING id",
+            Uuid::new_v4().to_string(),
             user.identifier,
             user.password,
             user.password_salt
@@ -85,8 +87,7 @@ impl Repository for PostgresRepository {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| Error::FailedToInsertUser(Box::new(e)))?
-        .id
-        .unwrap();
+        .id;
         Ok(id)
     }
 }

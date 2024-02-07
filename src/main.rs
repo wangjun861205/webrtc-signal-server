@@ -167,7 +167,11 @@ async fn main() -> std::io::Result<()> {
                         get().to(handlers::latest_messages_with_others::<
                             PostgresRepository,
                         >),
-                    )),
+                    ))
+                    .service(scope("/uploads")
+                    .route("", post().to(handlers::upload::<PostgresRepository, LocalFSStore>))
+                    .route("/{id}", get().to(handlers::download::<PostgresRepository, LocalFSStore>))
+                ),
             )
     })
     .bind(config.listen_address)

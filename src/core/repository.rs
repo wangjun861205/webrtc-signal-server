@@ -93,6 +93,9 @@ pub trait Repository {
         &self,
         create: &InsertChatMessage,
     ) -> Result<String>;
+
+    async fn update_avatar(&self, self_id: &str, upload_id: &str) -> Result<()>;
+    async fn get_avatar(&self, self_id: &str) -> Result<Option<String>>;
 }
 
 pub trait AddrStore<R, H, T, F>

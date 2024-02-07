@@ -9,14 +9,16 @@ use auth_service::core::{
     service::Service as AuthService, token_manager::TokenManager,
 };
 use serde::{Deserialize, Serialize};
+use upload_service::core::{repository::Repository as UploadRepository, store::Store as UploadStore, service::Service as UploadService };    
+use actix_multipart::{form::MultipartForm, Field, Multipart};
+use futures_util::{Stream, StreamExt, TryStreamExt};
+use std::sync::Arc;
+
 
 use crate::{
     core::repository::{
         ChatMessage, Friend, FriendRequest, InsertChatMessage, Repository, User,
-    },
-    utils::UserID,
-    ws::messages,
-    AddrMap,
+    }, stores::postgres::PostgresRepository, utils::UserID, ws::messages, AddrMap
 };
 
 #[derive(Debug, Deserialize)]
@@ -252,4 +254,49 @@ where
         .await
         .map_err(|e| ErrorInternalServerError(e))?;
     Ok(Json(messages))
+}
+
+
+#[derive(Debug, Serialize)]
+pub(crate) struct UploadResponse {
+    ids: Vec<String>
+}
+
+
+
+pub(crate) async fn upload<R, S>(upload_service: Data<UploadService<R, S>>, mut payload: Multipart, UserID(uid): UserID) -> Result<Json<UploadResponse>> 
+where R: UploadRepository + Clone , S: UploadStore + Clone {
+    let mut ids = Vec::new();
+    while let Some(field) = payload.next().await{
+        if let Ok(f) = field {
+            let filename = f.content_disposition().get_filename().unwrap().to_owned();
+            let chunk = f.map_err(|e| anyhow::Error::msg(format!("failed to read uploaded file: {}", e)));
+            let id = upload_service.upload(chunk, &filename, &uid, Some((1 << 10) -1)).await.map_err(ErrorInternalServerError)?;
+            ids.push(id);
+        }
+    }
+    Ok(Json(UploadResponse {ids}))
+    
+}
+
+pub(crate) async fn download<R, S>(upload_service: Data<UploadService<R, S>>, id: Path<String>) -> Result<HttpResponse> 
+
+where R: UploadRepository + Clone , S: UploadStore + Clone 
+{
+    let id = id.into_inner();
+    let stream = upload_service.download(&id).await.map_err(ErrorInternalServerError)?;
+    Ok(HttpResponse::Ok().streaming(stream))
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct UpsertAvatarRequest {
+    upload_id: String,
+}
+
+pub(crate) async fn upsert_avatar<R>(repo: Data<PostgresRepository>, UserID(uid): UserID, Json(UpsertAvatarRequest{upload_id}): Json<UpsertAvatarRequest>) -> Result<HttpResponse> 
+where R: Repository + Clone {
+    repo.update_avatar(&uid, &upload_id)
+    .await
+    .map_err(ErrorInternalServerError)?;
+    Ok(HttpResponse::new(StatusCode::OK))
 }

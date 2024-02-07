@@ -2989,6 +2989,7 @@ name = "webrtc-signal-server"
 version = "0.1.0"
 dependencies = [
  "actix",
+ "actix-multipart",
  "actix-web",
  "actix-web-actors",
  "anyhow",
@@ -2996,6 +2997,7 @@ dependencies = [
  "chrono",
  "dotenv",
  "env_logger",
+ "futures-util",
  "hmac",
  "jwt",
  "nb-from-env",

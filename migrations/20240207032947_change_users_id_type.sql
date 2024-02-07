@@ -1,0 +1,3 @@
+-- Add migration script here
+ALTER TABLE users ALTER COLUMN id TYPE VARCHAR;
+ALTER TABLE users ALTER COLUMN id DROP DEFAULT;
