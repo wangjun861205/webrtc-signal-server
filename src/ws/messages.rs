@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) enum Income {
     Message { to: String, content: String },
     AddFriend { user_id: String },
-    FriendRequests,
+    // FriendRequests,
     Accept { id: String },
     ChatMessage { to: String, content: String },
 }

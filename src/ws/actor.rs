@@ -1,11 +1,10 @@
-use actix::{fut::wrap_future, ActorContext, Addr};
+use actix::{fut::wrap_future, Addr};
 use actix_web::{
     error::{ErrorForbidden, ErrorInternalServerError},
     web::Data,
     web::{Payload, Query},
     Error, HttpRequest, HttpResponse,
 };
-use actix_web_actors::ws::{self, CloseCode, CloseReason};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +12,7 @@ use tokio::sync::RwLock;
 
 use actix::{Actor, AsyncContext, StreamHandler};
 use actix_web_actors::ws::{
-    Message as WSMessage, ProtocolError, WebsocketContext,
+    self, Message as WSMessage, ProtocolError, WebsocketContext,
 };
 use auth_service::core::{
     hasher::Hasher, repository::Repository as AuthRepository,
@@ -21,65 +20,59 @@ use auth_service::core::{
 };
 use serde_json::from_str;
 
-use crate::{core::repository::Repository, ws::messages::InMessage};
-
-use super::messages::{
-    Accept, AcquireFriends, AddFriend, FriendRequests, InChatMessage, Income,
-    Online, Outcome, OutcomeType,
+use crate::{
+    core::{notifier::Notifier, repository::Repository},
+    ws::messages::InMessage,
 };
 
-pub struct WS<R, H, T, F>
+use super::messages::{
+    Accept, AddFriend, FriendRequests, InChatMessage, Income, Outcome,
+    OutcomeType,
+};
+
+pub struct WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     pub(crate) user_id: String,
     pub(crate) addrs: Arc<RwLock<HashMap<String, Addr<Self>>>>,
-    pub(crate) auth_service: Data<AuthService<R, H, T>>,
     pub(crate) friends_store: F,
+    pub(crate) notifier: N,
 }
 
-impl<R, H, T, F> WS<R, H, T, F>
+impl<F, N> WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     pub fn new(
         user_id: String,
         addrs: Arc<RwLock<HashMap<String, Addr<Self>>>>,
-        auth_service: Data<AuthService<R, H, T>>,
         friends_store: F,
+        notifier: N,
     ) -> Self {
         Self {
             user_id,
             addrs,
-            auth_service,
             friends_store,
+            notifier,
         }
     }
 }
 
-impl<R, H, T, F> Actor for WS<R, H, T, F>
+impl<F, N> Actor for WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     type Context = WebsocketContext<Self>;
 }
 
-impl<R, H, T, F> StreamHandler<Result<WSMessage, ProtocolError>>
-    for WS<R, H, T, F>
+impl<F, N> StreamHandler<Result<WSMessage, ProtocolError>> for WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     fn handle(
         &mut self,
@@ -103,7 +96,7 @@ where
                     Income::AddFriend { user_id } => {
                         ctx.notify(AddFriend { user_id })
                     }
-                    Income::FriendRequests => ctx.notify(FriendRequests),
+                    // Income::FriendRequests => ctx.notify(FriendRequests),
                     Income::Accept { id } => ctx.notify(Accept { id }),
                 },
                 Err(err) => {
@@ -115,16 +108,15 @@ where
                 }
             },
             Ok(WSMessage::Close(_)) => {
-                ctx.close(Some(CloseReason {
-                    code: CloseCode::Normal,
-                    description: Some("as proposed".into()),
-                }));
-                ctx.terminate();
                 let addrs = self.addrs.clone();
                 let self_id = self.user_id.clone();
                 ctx.wait(wrap_future(async move {
                     addrs.write().await.remove(&self_id);
                 }));
+                // ctx.close(Some(CloseReason {
+                //     code: CloseCode::Normal,
+                //     description: Some("as proposed".into()),
+                // }));
             }
 
             _ => {
@@ -138,19 +130,20 @@ where
     }
 }
 
-type AddrMap<R, H, T, F> = Arc<RwLock<HashMap<String, Addr<WS<R, H, T, F>>>>>;
+type AddrMap<F, N> = Arc<RwLock<HashMap<String, Addr<WS<F, N>>>>>;
 
 #[derive(Deserialize)]
 pub(crate) struct Index {
     pub(crate) auth_token: String,
 }
 
-pub(crate) async fn index<R, H, T, F>(
+pub(crate) async fn index<R, H, T, F, N>(
     req: HttpRequest,
     stream: Payload,
-    map: Data<AddrMap<R, H, T, F>>,
+    map: Data<AddrMap<F, N>>,
     auth_service: Data<AuthService<R, H, T>>,
     friends_stores: Data<F>,
+    notifier: Data<N>,
     Query(Index { auth_token }): Query<Index>,
 ) -> Result<HttpResponse, Error>
 where
@@ -158,6 +151,7 @@ where
     H: Hasher + Clone + 'static,
     T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     let user_id = auth_service
         .verify_token(&auth_token)
@@ -168,8 +162,8 @@ where
         WS::new(
             user_id.clone(),
             map.as_ref().clone(),
-            auth_service.clone(),
             friends_stores.as_ref().clone(),
+            notifier.as_ref().clone(),
         ),
         &req,
         stream,

@@ -1,12 +1,16 @@
 #![feature(result_flattening)]
+#![allow(async_fn_in_trait)]
 
 pub mod core;
 pub mod handlers;
+pub mod notifiers;
 pub mod stores;
 pub mod utils;
 pub mod ws;
 
-use sqlx::{postgres::PgPoolOptions, Postgres};
+use core::notifier;
+use notifiers::fcm::FCMNotifier;
+use sqlx::postgres::PgPoolOptions;
 use std::{collections::HashMap, env, sync::Arc};
 use stores::postgres::PostgresRepository;
 use ws::actor::WS;
@@ -35,21 +39,8 @@ struct Config {
     auth_token_secret: String,
 }
 
-type AddrMap = Arc<
-    RwLock<
-        HashMap<
-            String,
-            Addr<
-                WS<
-                    PostgresRepository,
-                    ShaHasher,
-                    JWTTokenManager<Hmac<sha2::Sha256>>,
-                    PostgresRepository,
-                >,
-            >,
-        >,
-    >,
->;
+type AddrMap =
+    Arc<RwLock<HashMap<String, Addr<WS<PostgresRepository, FCMNotifier>>>>>;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -64,7 +55,7 @@ async fn main() -> std::io::Result<()> {
         .connect(&db_url)
         .await
         .expect("failed to connect to postgresql");
-    let repository = PostgresRepository::new(pg_pool);
+    let repository = PostgresRepository::new(pg_pool.clone());
     let auth_hasher = ShaHasher {};
     let jwt_token_manager: JWTTokenManager<Hmac<sha2::Sha256>> =
         JWTTokenManager::new(
@@ -89,6 +80,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::new(map.clone()))
             .app_data(Data::new(repository.clone()))
             .app_data(Data::new(upload_service.clone()))
+            .app_data(Data::new(FCMNotifier::new(pg_pool.clone())))
             .wrap(Logger::default())
             .route(
                 "/login",
@@ -113,6 +105,7 @@ async fn main() -> std::io::Result<()> {
                     ShaHasher,
                     JWTTokenManager<Hmac<sha2::Sha256>>,
                     PostgresRepository,
+                    FCMNotifier,
                 >),
             )
             .service(
@@ -221,6 +214,15 @@ async fn main() -> std::io::Result<()> {
                                 put().to(handlers::upsert_avatar::<
                                     PostgresRepository,
                                 >),
+                            )
+                            .route(
+                                "/notification_token",
+                                put().to(
+                                    handlers::update_notification_token::<
+                                        PostgresRepository,
+                                        FCMNotifier,
+                                    >,
+                                ),
                             ),
                     ),
             )

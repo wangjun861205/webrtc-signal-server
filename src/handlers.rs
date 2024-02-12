@@ -10,7 +10,7 @@ use auth_service::core::{
     service::Service as AuthService, token_manager::TokenManager,
 };
 use futures_util::{Stream, StreamExt, TryStreamExt};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Serialize};
 use std::sync::Arc;
 use upload_service::core::{
     repository::Repository as UploadRepository,
@@ -18,8 +18,12 @@ use upload_service::core::{
 };
 
 use crate::{
-    core::repository::{
-        ChatMessage, Friend, FriendRequest, InsertChatMessage, Repository, User,
+    core::{
+        notifier::Notifier,
+        repository::{
+            ChatMessage, Friend, FriendRequest, InsertChatMessage, Repository,
+            User,
+        },
     },
     stores::postgres::PostgresRepository,
     utils::UserID,
@@ -377,5 +381,26 @@ where
             .map_err(ErrorInternalServerError)?;
         return Ok(HttpResponse::Ok().streaming(stream));
     }
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct UpdateNotificationToken {
+    token: String,
+}
+
+pub(crate) async fn update_notification_token<R, N>(
+    notifier: Data<N>,
+    UserID(uid): UserID,
+    Json(UpdateNotificationToken { token }): Json<UpdateNotificationToken>,
+) -> Result<HttpResponse>
+where
+    R: Repository + Clone,
+    N: Notifier + Clone,
+{
+    notifier
+        .update_token(&uid, &token)
+        .await
+        .map_err(ErrorInternalServerError)?;
     Ok(HttpResponse::Ok().finish())
 }

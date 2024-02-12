@@ -1,25 +1,22 @@
+use std::collections::HashMap;
+
+use crate::core::notifier::Notifier;
 use crate::core::repository::{InsertChatMessage, Repository};
 use crate::ws::actor::WS;
 use crate::ws::messages::{InMessage, OutMessage, Outcome};
 use actix::fut::wrap_future;
 use actix::{AsyncContext, Handler};
-use auth_service::core::{
-    hasher::Hasher, repository::Repository as AuthRepository,
-    token_manager::TokenManager,
-};
+use log::error;
 use serde::Serialize;
 
 use super::messages::{
-    Accept, AddFriend, FriendRequests, InChatMessage, OutChatMessage,
-    OutcomeType,
+    Accept, AddFriend, InChatMessage, OutChatMessage, OutcomeType,
 };
 
-impl<R, H, T, F> Handler<InMessage> for WS<R, H, T, F>
+impl<F, N> Handler<InMessage> for WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -33,7 +30,7 @@ where
     ) -> Self::Result {
         let self_addr = ctx.address();
         let addrs = self.addrs.clone();
-        // let repo = self.friends_store.clone();
+        let mut notifier = self.notifier.clone();
         ctx.spawn(wrap_future(async move {
             if let Some(dest_addr) = addrs.read().await.get(&to) {
                 dest_addr.do_send(OutMessage {
@@ -41,6 +38,33 @@ where
                     content,
                 });
                 return;
+            } else {
+                match notifier.get_token(&to).await {
+                    Ok(token) => {
+                        if let Some(token) = token {
+                            if let Err(e) = notifier
+                                .send_notification::<HashMap<&str, String>>(
+                                    &token,
+                                    "message",
+                                    "new webrtc message",
+                                    HashMap::from_iter(
+                                        vec![
+                                            ("sender", user_id),
+                                            ("content", content),
+                                        ]
+                                        .into_iter(),
+                                    ),
+                                )
+                                .await
+                            {
+                                error!("failed to send notification: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("failed to get notification token: {}", e);
+                    }
+                }
             }
             self_addr.do_send(Outcome::<()>::error(
                 OutcomeType::Message,
@@ -51,12 +75,10 @@ where
     }
 }
 
-impl<R, H, T, F> Handler<OutMessage> for WS<R, H, T, F>
+impl<F, N> Handler<OutMessage> for WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -68,12 +90,10 @@ where
     }
 }
 
-impl<R, H, T, F> Handler<AddFriend> for WS<R, H, T, F>
+impl<F, N> Handler<AddFriend> for WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -85,42 +105,10 @@ where
     }
 }
 
-impl<R, H, T, F> Handler<FriendRequests> for WS<R, H, T, F>
+impl<F, N> Handler<Accept> for WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
-{
-    type Result = ();
-    fn handle(
-        &mut self,
-        _: FriendRequests,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
-        let self_id = self.user_id.clone();
-        let self_addr = ctx.address();
-        let friends_store = self.friends_store.clone();
-        let addrs = self.addrs.clone();
-        ctx.spawn(wrap_future(async move {
-            let requests = friends_store
-                .pending_friend_requests(&self_id)
-                .await
-                .unwrap();
-            self_addr.do_send(Outcome::success(
-                OutcomeType::FriendRequests,
-                requests,
-            ));
-        }));
-    }
-}
-
-impl<R, H, T, F> Handler<Accept> for WS<R, H, T, F>
-where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
-    F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -128,8 +116,6 @@ where
         Accept { id }: Accept,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let self_id = self.user_id.clone();
-        let self_addr = ctx.address();
         let friends_store = self.friends_store.clone();
         let addrs = self.addrs.clone();
         ctx.spawn(wrap_future(async move {
@@ -142,13 +128,11 @@ where
     }
 }
 
-impl<R, H, T, O, F> Handler<Outcome<O>> for WS<R, H, T, F>
+impl<O, F, N> Handler<Outcome<O>> for WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     O: Serialize,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -160,12 +144,10 @@ where
     }
 }
 
-impl<R, H, T, F> Handler<InChatMessage> for WS<R, H, T, F>
+impl<F, N> Handler<InChatMessage> for WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -203,12 +185,10 @@ where
     }
 }
 
-impl<R, H, T, F> Handler<OutChatMessage> for WS<R, H, T, F>
+impl<F, N> Handler<OutChatMessage> for WS<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(

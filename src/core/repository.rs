@@ -7,6 +7,8 @@ use auth_service::core::{
 };
 use serde::Serialize;
 
+use super::notifier::Notifier;
+
 #[derive(Clone, PartialEq, Serialize)]
 pub enum FriendRequestStatus {
     Pending,
@@ -54,7 +56,7 @@ pub(crate) struct ChatMessage {
 }
 
 #[derive(Clone, Serialize)]
-pub(crate) struct InsertChatMessage {
+pub struct InsertChatMessage {
     pub(crate) from: String,
     pub(crate) to: String,
     pub(crate) content: String,
@@ -94,24 +96,19 @@ pub trait Repository {
         create: &InsertChatMessage,
     ) -> Result<String>;
 
-    async fn update_avatar(&self, self_id: &str, upload_id: &str) -> Result<()>;
+    async fn update_avatar(&self, self_id: &str, upload_id: &str)
+        -> Result<()>;
     async fn get_avatar(&self, self_id: &str) -> Result<Option<String>>;
 }
 
-pub trait AddrStore<R, H, T, F>
+pub trait AddrStore<F, N>
 where
-    R: AuthRepository + Clone + 'static,
-    H: Hasher + Clone + 'static,
-    T: TokenManager + Clone + 'static,
     F: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
 {
-    async fn add_addr(
-        &self,
-        id: String,
-        addr: Addr<WS<R, H, T, F>>,
-    ) -> Result<()>;
+    async fn add_addr(&self, id: String, addr: Addr<WS<F, N>>) -> Result<()>;
     async fn remove_addr(&self, id: String) -> Result<()>;
-    async fn get_addr(&self, id: String) -> Result<Addr<WS<R, H, T, F>>>;
-    async fn get_all_addrs(&self) -> Result<Vec<Addr<WS<R, H, T, F>>>>;
+    async fn get_addr(&self, id: String) -> Result<Addr<WS<F, N>>>;
+    async fn get_all_addrs(&self) -> Result<Vec<Addr<WS<F, N>>>>;
     async fn get_all_ids(&self) -> Result<Vec<String>>;
 }

@@ -245,14 +245,21 @@ impl Repository for PostgresRepository {
     }
 
     async fn get_avatar(&self, self_id: &str) -> Result<Option<String>> {
-        Ok(query_scalar!("
-        SELECT avatar FROM users WHERE id = $1", self_id)
+        query_scalar!(
+            "
+        SELECT avatar FROM users WHERE id = $1",
+            self_id
+        )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| Error::wrap("failed to get avatar".into(), 500, e))?)
+        .map_err(|e| Error::wrap("failed to get avatar".into(), 500, e))
     }
 
-    async fn update_avatar(&self, self_id: &str, upload_id: &str) -> Result<()> {
+    async fn update_avatar(
+        &self,
+        self_id: &str,
+        upload_id: &str,
+    ) -> Result<()> {
         query!(
             "UPDATE users SET avatar = $1 WHERE id = $2",
             upload_id,
