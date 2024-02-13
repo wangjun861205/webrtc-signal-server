@@ -44,6 +44,7 @@ pub(crate) struct User {
 pub(crate) struct Friend {
     pub id: String,
     pub phone: String,
+    pub unread_count: i64,
 }
 
 #[derive(Clone, Serialize)]

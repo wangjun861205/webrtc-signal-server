@@ -83,6 +83,7 @@ impl Repository for PostgresRepository {
 	})
 	.collect())
     }
+
     async fn friends(
         &self,
         user_id: &str,
@@ -91,29 +92,37 @@ impl Repository for PostgresRepository {
     ) -> Result<Vec<Friend>> {
         Ok(query!(
             r#"
-            SELECT 
-                CASE 
-                    WHEN u.fid = $1 THEN u.tid
-                    ELSE u.fid
-                END AS id,
-                CASE 
-                    WHEN u.fid = $1 THEN u.tphone
-                    ELSE u.fphone
-                END AS phone
-            FROM (
-                SELECT
-                    f.id AS fid,
-                    f.phone AS fphone,
-                    t.id AS tid,
-                    t.phone AS tphone
-                FROM
-                    users AS f
-                    JOIN friend_requests AS fr ON fr."from" = f.id
-                    JOIN users AS t ON fr."to" = t.id
-                WHERE fr.status = 'Accepted' AND (fr."from" = $1 OR fr."to" = $1)
-                LIMIT $2
-                OFFSET $3
-            ) AS u
+            SELECT
+                f.id,
+                f.phone,
+                COUNT(m.id) AS unread_count
+            FROM
+                (SELECT 
+                    CASE 
+                        WHEN u.fid = $1 THEN u.tid
+                        ELSE u.fid
+                    END AS id,
+                    CASE 
+                        WHEN u.fid = $1 THEN u.tphone
+                        ELSE u.fphone
+                    END AS phone
+                FROM (
+                    SELECT
+                        f.id AS fid,
+                        f.phone AS fphone,
+                        t.id AS tid,
+                        t.phone AS tphone
+                    FROM
+                        users AS f
+                        JOIN friend_requests AS fr ON fr."from" = f.id
+                        JOIN users AS t ON fr."to" = t.id
+                    WHERE fr.status = 'Accepted' AND (fr."from" = $1 OR fr."to" = $1)
+                    LIMIT $2
+                    OFFSET $3
+                ) AS u
+            ) AS f
+                LEFT JOIN messages AS m ON f.id = m."from" AND m."to" = $1 AND has_read = false
+            GROUP BY  f.id, f.phone
             "#,
             user_id,
             limit,
@@ -128,6 +137,7 @@ impl Repository for PostgresRepository {
         .map(|record| Friend {
             id: record.id.unwrap(),
             phone: record.phone.unwrap(),
+            unread_count: record.unread_count.unwrap_or(0),
         })
         .collect())
     }
@@ -192,24 +202,36 @@ impl Repository for PostgresRepository {
     ) -> Result<Vec<crate::core::repository::ChatMessage>> {
         Ok(query!(
             r#"
+                WITH unread_ids AS (
+                    UPDATE messages SET has_read = true WHERE (("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)) AND has_read = false RETURNING id
+                )
                 SELECT 
-                    id::VARCHAR AS id,
-                    "from"::VARCHAR AS "from",
-                    "to"::VARCHAR AS "to",
-                    content AS content,
-                    CASE
-                        WHEN "from" = $1 THEN true
-                        ELSE false
-                    END AS is_out
+                    id,
+                    "from",
+                    "to",
+                    content,
+                    is_out
                 FROM 
-                    messages
-                WHERE 
-                    ("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)
-                ORDER BY sent_at DESC
-                LIMIT $3
+                    (SELECT 
+                        id,
+                        "from",
+                        "to",
+                        content,
+                        CASE
+                            WHEN "from" = $1 THEN true
+                            ELSE false
+                        END AS is_out,
+                        sent_at
+                    FROM 
+                        messages
+                    WHERE 
+                        ("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)
+                    ORDER BY sent_at DESC
+                    LIMIT GREATEST($3, (SELECT COUNT(*) FROM unread_ids LIMIT 1))) AS m
+                ORDER BY m.sent_at ASC;
             "#,
-            Uuid::parse_str(self_id).unwrap(),
-            Uuid::parse_str(other_id).unwrap(),
+            self_id,
+            other_id,
             limit,
         )
         .fetch_all(&self.pool)
@@ -219,9 +241,9 @@ impl Repository for PostgresRepository {
         })?
         .into_iter()
         .map(|record| ChatMessage {
-            id: record.id.unwrap(),
-            from: record.from.unwrap(),
-            to: record.to.unwrap(),
+            id: record.id,
+            from: record.from,
+            to: record.to,
             content: record.content,
             is_out: record.is_out.unwrap(),
         })
@@ -232,16 +254,15 @@ impl Repository for PostgresRepository {
         &self,
         create: &InsertChatMessage,
     ) -> Result<String> {
-        Ok(query_scalar!(
-            r#"INSERT INTO messages ("from", "to", content) VALUES ($1, $2, $3) RETURNING id::VARCHAR"#,
-            Uuid::parse_str(&create.from).unwrap(),
-            Uuid::parse_str(&create.to).unwrap(),
+        query_scalar!(
+            r#"INSERT INTO messages (id, "from", "to", content) VALUES (UUID_GENERATE_V4()::VARCHAR, $1, $2, $3) RETURNING id"#,
+            &create.from,
+            &create.to,
             &create.content,
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| Error::wrap("failed to insert message".into(), 500, e))?
-        .unwrap())
+        .map_err(|e| Error::wrap("failed to insert message".into(), 500, e))
     }
 
     async fn get_avatar(&self, self_id: &str) -> Result<Option<String>> {
