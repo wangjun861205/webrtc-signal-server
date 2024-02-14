@@ -127,7 +127,6 @@ async fn main() -> std::io::Result<()> {
                                 "/{uid}/avatar",
                                 get().to(handlers::get_user_avatar::<
                                     PostgresRepository,
-                                    PostgresRepository,
                                     LocalFSStore,
                                 >),
                             ),
@@ -178,7 +177,7 @@ async fn main() -> std::io::Result<()> {
                     )
                     .service(scope("/chat_messages").route(
                         "",
-                        get().to(handlers::latest_messages_with_others::<
+                        get().to(handlers::chat_message_history::<
                             PostgresRepository,
                         >),
                     ))
@@ -205,16 +204,10 @@ async fn main() -> std::io::Result<()> {
                                 "/avatar",
                                 get().to(handlers::my_avatar::<
                                     PostgresRepository,
-                                    PostgresRepository,
                                     LocalFSStore,
                                 >),
                             )
-                            .route(
-                                "/avatar",
-                                put().to(handlers::upsert_avatar::<
-                                    PostgresRepository,
-                                >),
-                            )
+                            .route("/avatar", put().to(handlers::upsert_avatar))
                             .route(
                                 "/notification_token",
                                 put().to(

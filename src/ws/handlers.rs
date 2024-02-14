@@ -160,7 +160,7 @@ where
         let self_addr = ctx.address();
         let addrs = self.addrs.clone();
         ctx.spawn(wrap_future(async move {
-            if let Err(e) = repo
+            match repo
                 .insert_chat_message(&InsertChatMessage {
                     from: self_id.clone(),
                     to: to.clone(),
@@ -168,18 +168,22 @@ where
                 })
                 .await
             {
-                self_addr.do_send(Outcome::<()>::error(
-                    OutcomeType::ChatMessage,
-                    500,
-                    e.to_string(),
-                ));
-                return;
-            }
-            if let Some(addr) = addrs.read().await.get(&to) {
-                addr.do_send(OutChatMessage {
-                    from: self_id,
-                    content,
-                })
+                Err(e) => {
+                    self_addr.do_send(Outcome::<()>::error(
+                        OutcomeType::ChatMessage,
+                        500,
+                        e.to_string(),
+                    ));
+                }
+                Ok(id) => {
+                    if let Some(addr) = addrs.read().await.get(&to) {
+                        addr.do_send(OutChatMessage {
+                            id,
+                            from: self_id,
+                            content,
+                        })
+                    }
+                }
             }
         }));
     }

@@ -2,9 +2,9 @@ use super::PostgresRepository;
 use crate::core::error::{Error, Result};
 use crate::core::repository::{
     ChatMessage, Friend, FriendRequest, FriendRequestStatus, InsertChatMessage,
-    Repository, User, UserType,
+    Repository, Session, User, UserType,
 };
-use sqlx::{query, query_scalar, types::Uuid};
+use sqlx::{query, query_as, query_scalar, types::Uuid};
 
 impl Repository for PostgresRepository {
     async fn add_friend_request(&self, from: &str, to: &str) -> Result<String> {
@@ -194,45 +194,51 @@ impl Repository for PostgresRepository {
         }))
     }
 
-    async fn latest_chat_messages_with_others(
+    async fn chat_message_history(
         &self,
         self_id: &str,
         other_id: &str,
         limit: i64,
+        before: Option<&str>,
     ) -> Result<Vec<crate::core::repository::ChatMessage>> {
         Ok(query!(
             r#"
-                WITH unread_ids AS (
-                    UPDATE messages SET has_read = true WHERE (("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)) AND has_read = false RETURNING id
-                )
+                WITH 
+                    unread_ids AS (
+                        UPDATE messages SET has_read = true WHERE (("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)) AND has_read = false RETURNING id
+                    ),
+                    last_message AS (
+                        SELECT id FROM messages WHERE (("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)) ORDER BY id DESC LIMIT 1
+                    )
                 SELECT 
                     id,
                     "from",
                     "to",
                     content,
-                    is_out
+                    sent_at
                 FROM 
                     (SELECT 
                         id,
-                        "from",
+                        CASE WHEN "from" != $1 THEN "from" ELSE '' END AS "from",
                         "to",
                         content,
-                        CASE
-                            WHEN "from" = $1 THEN true
-                            ELSE false
-                        END AS is_out,
                         sent_at
                     FROM 
                         messages
                     WHERE 
-                        ("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)
-                    ORDER BY sent_at DESC
+                        (
+                            ("from" = $1 AND "to" = $2) 
+                            OR ("from" = $2 AND "to" = $1)
+                        ) 
+                        AND id < CASE WHEN $4 = null THEN $4 ELSE (SELECT id FROM last_message) END
+                    ORDER BY id DESC
                     LIMIT GREATEST($3, (SELECT COUNT(*) FROM unread_ids LIMIT 1))) AS m
-                ORDER BY m.sent_at ASC;
+                ORDER BY m.id ASC;
             "#,
             self_id,
             other_id,
             limit,
+            before,
         )
         .fetch_all(&self.pool)
         .await
@@ -242,10 +248,10 @@ impl Repository for PostgresRepository {
         .into_iter()
         .map(|record| ChatMessage {
             id: record.id,
-            from: record.from,
+            from: record.from.unwrap(),
             to: record.to,
             content: record.content,
-            is_out: record.is_out.unwrap(),
+            sent_at: record.sent_at,
         })
         .collect())
     }
@@ -255,7 +261,7 @@ impl Repository for PostgresRepository {
         create: &InsertChatMessage,
     ) -> Result<String> {
         query_scalar!(
-            r#"INSERT INTO messages (id, "from", "to", content) VALUES (UUID_GENERATE_V4()::VARCHAR, $1, $2, $3) RETURNING id"#,
+            r#"INSERT INTO messages (id, "from", "to", content) VALUES (UUID_GENERATE_V1()::VARCHAR, $1, $2, $3) RETURNING id"#,
             &create.from,
             &create.to,
             &create.content,
@@ -290,5 +296,38 @@ impl Repository for PostgresRepository {
         .await
         .map_err(|e| Error::wrap("failed to update avatar".into(), 500, e))?;
         Ok(())
+    }
+
+    async fn sessions(
+        &self,
+        user_id: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<crate::core::repository::Session>> {
+        Ok(query!(r#"
+            SELECT DISTINCT
+                peer_ids.peer_id AS peer_id,
+                users.phone AS peer_phone,
+                SUM(CASE WHEN messages.has_read = false THEN 1 ELSE 0 END) OVER (PARTITION BY peer_ids.peer_id ORDER BY messages.id) AS unread_count,
+                LAST_VALUE(messages.content) OVER (PARTITION BY peer_ids.peer_id ORDER BY messages.id) AS latest_content
+            FROM (SELECT DISTINCT
+                    CASE WHEN "from" = $1 THEN "to" ELSE "from" END AS peer_id
+                FROM messages
+                WHERE "from" = $1 OR "to" = $1) AS peer_ids
+                JOIN users ON peer_ids.peer_id = users.id
+                JOIN messages ON peer_ids.peer_id = messages."from" OR peer_ids.peer_id = messages."to"
+            LIMIT $2 
+            OFFSET $3
+            "#, user_id, limit, offset).fetch_all(&self.pool)
+            .await
+            .map_err(|e| Error::wrap("failed to get sessions".into(), 500, e))?
+            .into_iter()
+            .map(|record| Session {
+                peer_id: record.peer_id.unwrap(),
+                peer_phone: record.peer_phone,
+                unread_count: record.unread_count.unwrap(),
+                latest_content: record.latest_content,
+            })
+            .collect())
     }
 }

@@ -1,10 +1,7 @@
 use crate::core::error::Result;
 use crate::ws::actor::WS;
 use actix::Addr;
-use auth_service::core::{
-    hasher::Hasher, repository::Repository as AuthRepository,
-    token_manager::TokenManager,
-};
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use super::notifier::Notifier;
@@ -48,12 +45,20 @@ pub(crate) struct Friend {
 }
 
 #[derive(Clone, Serialize)]
+pub(crate) struct Session {
+    pub(crate) peer_id: String,
+    pub(crate) peer_phone: String,
+    pub(crate) unread_count: i64,
+    pub(crate) latest_content: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
 pub(crate) struct ChatMessage {
     pub(crate) id: String,
     pub(crate) from: String,
     pub(crate) to: String,
     pub(crate) content: String,
-    pub(crate) is_out: bool,
+    pub(crate) sent_at: DateTime<chrono::Utc>,
 }
 
 #[derive(Clone, Serialize)]
@@ -78,6 +83,12 @@ pub trait Repository {
         offset: i64,
         limit: i64,
     ) -> Result<Vec<Friend>>;
+    async fn sessions(
+        &self,
+        user_id: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<Session>>;
     async fn is_friend(&self, user_id: &str, friend_id: &str) -> Result<bool>;
     async fn search_user(
         &self,
@@ -85,11 +96,12 @@ pub trait Repository {
         phone: &str,
     ) -> Result<Option<User>>;
 
-    async fn latest_chat_messages_with_others(
+    async fn chat_message_history(
         &self,
         self_id: &str,
         other_id: &str,
         limit: i64,
+        before: Option<&str>,
     ) -> Result<Vec<ChatMessage>>;
 
     async fn insert_chat_message(

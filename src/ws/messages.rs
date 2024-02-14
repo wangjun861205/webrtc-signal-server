@@ -110,6 +110,7 @@ pub(crate) struct InChatMessage {
 #[derive(Debug, Serialize, ActixMessage)]
 #[rtype(result = "()")]
 pub(crate) struct OutChatMessage {
+    pub(crate) id: String,
     pub(crate) from: String,
     pub(crate) content: String,
 }

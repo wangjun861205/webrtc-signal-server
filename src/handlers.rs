@@ -245,24 +245,23 @@ where
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct LatestChatMessagesWithOthers {
+pub(crate) struct ChatMessageHistory {
     to: String,
+    before: Option<String>,
 }
 
-pub(crate) async fn latest_messages_with_others<F>(
+pub(crate) async fn chat_message_history<F>(
     repository: Data<F>,
     UserID(uid): UserID,
-    Query(LatestChatMessagesWithOthers { to }): Query<
-        LatestChatMessagesWithOthers,
-    >,
+    Query(ChatMessageHistory { to, before }): Query<ChatMessageHistory>,
 ) -> Result<Json<Vec<ChatMessage>>>
 where
     F: Repository,
 {
     let messages = repository
-        .latest_chat_messages_with_others(&uid, &to, 20)
+        .chat_message_history(&uid, &to, 20, before.as_deref())
         .await
-        .map_err(|e| ErrorInternalServerError(e))?;
+        .map_err(ErrorInternalServerError)?;
     Ok(Json(messages))
 }
 
@@ -322,27 +321,23 @@ pub(crate) struct UpsertAvatarRequest {
     upload_id: String,
 }
 
-pub(crate) async fn upsert_avatar<R>(
+pub(crate) async fn upsert_avatar(
     repo: Data<PostgresRepository>,
     UserID(uid): UserID,
     Json(UpsertAvatarRequest { upload_id }): Json<UpsertAvatarRequest>,
-) -> Result<HttpResponse>
-where
-    R: Repository + Clone,
-{
+) -> Result<HttpResponse> {
     repo.update_avatar(&uid, &upload_id)
         .await
         .map_err(ErrorInternalServerError)?;
     Ok(HttpResponse::new(StatusCode::OK))
 }
 
-pub(crate) async fn my_avatar<R, UR, US>(
+pub(crate) async fn my_avatar<UR, US>(
     repo: Data<PostgresRepository>,
     UserID(uid): UserID,
     upload_service: Data<UploadService<UR, US>>,
 ) -> Result<HttpResponse>
 where
-    R: Repository + Clone,
     UR: UploadRepository + Clone,
     US: UploadStore + Clone,
 {
@@ -360,13 +355,12 @@ where
     Ok(HttpResponse::Ok().finish())
 }
 
-pub(crate) async fn get_user_avatar<R, UR, US>(
+pub(crate) async fn get_user_avatar<UR, US>(
     repo: Data<PostgresRepository>,
     uid: Path<(String,)>,
     upload_service: Data<UploadService<UR, US>>,
 ) -> Result<HttpResponse>
 where
-    R: Repository + Clone,
     UR: UploadRepository + Clone,
     US: UploadStore + Clone,
 {
