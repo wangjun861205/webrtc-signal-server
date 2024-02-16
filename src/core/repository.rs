@@ -19,6 +19,7 @@ pub struct FriendRequest {
     pub from: String,
     pub to: String,
     pub status: FriendRequestStatus,
+    pub phone: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -34,6 +35,7 @@ pub(crate) enum UserType {
 pub(crate) struct User {
     pub id: String,
     pub phone: String,
+    pub avatar: Option<String>,
     pub typ: UserType,
 }
 
@@ -41,7 +43,7 @@ pub(crate) struct User {
 pub(crate) struct Friend {
     pub id: String,
     pub phone: String,
-    pub unread_count: i64,
+    pub avatar: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -77,18 +79,8 @@ pub trait Repository {
         &self,
         to: &str,
     ) -> Result<Vec<FriendRequest>>;
-    async fn friends(
-        &self,
-        user_id: &str,
-        offset: i64,
-        limit: i64,
-    ) -> Result<Vec<Friend>>;
-    async fn sessions(
-        &self,
-        user_id: &str,
-        offset: i64,
-        limit: i64,
-    ) -> Result<Vec<Session>>;
+    async fn friends(&self, user_id: &str) -> Result<Vec<Friend>>;
+    async fn sessions(&self, user_id: &str) -> Result<Vec<Session>>;
     async fn is_friend(&self, user_id: &str, friend_id: &str) -> Result<bool>;
     async fn search_user(
         &self,
@@ -112,6 +104,9 @@ pub trait Repository {
     async fn update_avatar(&self, self_id: &str, upload_id: &str)
         -> Result<()>;
     async fn get_avatar(&self, self_id: &str) -> Result<Option<String>>;
+    async fn mark_as_read(&self, msg_id: &str) -> Result<()>;
+    async fn get_friend(&self, id: &str) -> Result<Friend>;
+    async fn get_phone(&self, id: &str) -> Result<String>;
 }
 
 pub trait AddrStore<F, N>

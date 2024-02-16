@@ -93,9 +93,9 @@ where
                     Income::ChatMessage { to, content } => {
                         ctx.notify(InChatMessage { to, content })
                     }
-                    Income::AddFriend { user_id } => {
-                        ctx.notify(AddFriend { user_id })
-                    }
+                    // Income::AddFriend { user_id } => {
+                    //     ctx.notify(AddFriend { user_id })
+                    // }
                     // Income::FriendRequests => ctx.notify(FriendRequests),
                     Income::Accept { id } => ctx.notify(Accept { id }),
                 },

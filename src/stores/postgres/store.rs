@@ -4,7 +4,7 @@ use crate::core::repository::{
     ChatMessage, Friend, FriendRequest, FriendRequestStatus, InsertChatMessage,
     Repository, Session, User, UserType,
 };
-use sqlx::{query, query_as, query_scalar, types::Uuid};
+use sqlx::{query, query_scalar, types::Uuid};
 
 impl Repository for PostgresRepository {
     async fn add_friend_request(&self, from: &str, to: &str) -> Result<String> {
@@ -23,20 +23,40 @@ impl Repository for PostgresRepository {
     }
     async fn get_friend_request(&self, id: &str) -> Result<FriendRequest> {
         if let Some(record) = query!(
-		r#"SELECT id, "from", "to", status FROM friend_requests WHERE id = $1"#,
-		id,
-	)
-	.fetch_optional(&self.pool)
-	.await
-	.map_err(|e| Error::wrap(format!("failed to get friend request(id: {})", id), 500, e))? {
-		let status = match record.status.as_ref() {
-			"Pending" => FriendRequestStatus::Pending,
-			"Accepted" => FriendRequestStatus::Accepted,
-			"Rejected" => FriendRequestStatus::Rejected,
-			_ => return Err(Error::new(format!("invalid request status: {}", record.status), 500))
-		};
-		return Ok(FriendRequest{id: record.id, from: record.from, to: record.to, status});
-	}
+            r#"SELECT r.id, r."from", r."to", r.status, u.phone 
+        FROM friend_requests AS r
+        JOIN users AS u ON r."from" = u.id
+        WHERE r.id = $1"#,
+            id,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            Error::wrap(
+                format!("failed to get friend request(id: {})", id),
+                500,
+                e,
+            )
+        })? {
+            let status = match record.status.as_ref() {
+                "Pending" => FriendRequestStatus::Pending,
+                "Accepted" => FriendRequestStatus::Accepted,
+                "Rejected" => FriendRequestStatus::Rejected,
+                _ => {
+                    return Err(Error::new(
+                        format!("invalid request status: {}", record.status),
+                        500,
+                    ))
+                }
+            };
+            return Ok(FriendRequest {
+                id: record.id,
+                from: record.from,
+                to: record.to,
+                status,
+                phone: record.phone,
+            });
+        }
         Err(Error::new(
             format!("friend request not found(id: {})", id),
             404,
@@ -71,7 +91,7 @@ impl Repository for PostgresRepository {
         to: &str,
     ) -> Result<Vec<FriendRequest>> {
         Ok(query!(
-		r#"SELECT id::VARCHAR, "from"::VARCHAR, "to"::VARCHAR FROM friend_requests WHERE status = 'Pending' AND "to" = $1"#,
+		r#"SELECT r.id, r."from", r."to", u.phone FROM friend_requests AS r JOIN users AS u ON r."from" = u.id WHERE status = 'Pending' AND r."to" = $1"#,
 		to,
 	)
 	.fetch_all(&self.pool)
@@ -79,23 +99,18 @@ impl Repository for PostgresRepository {
 	.map_err(|e| Error::wrap("failed to get friend requests".into(), 500, e))?
 	.into_iter()
 	.map(|record| {
-		FriendRequest { id: record.id, from: record.from, to: record.to, status: FriendRequestStatus::Pending }
+		FriendRequest { id: record.id, from: record.from, to: record.to, status: FriendRequestStatus::Pending, phone: record.phone }
 	})
 	.collect())
     }
 
-    async fn friends(
-        &self,
-        user_id: &str,
-        limit: i64,
-        offset: i64,
-    ) -> Result<Vec<Friend>> {
+    async fn friends(&self, user_id: &str) -> Result<Vec<Friend>> {
         Ok(query!(
             r#"
             SELECT
                 f.id,
                 f.phone,
-                COUNT(m.id) AS unread_count
+                f.avatar
             FROM
                 (SELECT 
                     CASE 
@@ -105,11 +120,13 @@ impl Repository for PostgresRepository {
                     CASE 
                         WHEN u.fid = $1 THEN u.tphone
                         ELSE u.fphone
-                    END AS phone
+                    END AS phone,
+                    u.favatar AS avatar
                 FROM (
                     SELECT
                         f.id AS fid,
                         f.phone AS fphone,
+                        f.avatar AS favatar,
                         t.id AS tid,
                         t.phone AS tphone
                     FROM
@@ -117,16 +134,12 @@ impl Repository for PostgresRepository {
                         JOIN friend_requests AS fr ON fr."from" = f.id
                         JOIN users AS t ON fr."to" = t.id
                     WHERE fr.status = 'Accepted' AND (fr."from" = $1 OR fr."to" = $1)
-                    LIMIT $2
-                    OFFSET $3
                 ) AS u
             ) AS f
                 LEFT JOIN messages AS m ON f.id = m."from" AND m."to" = $1 AND has_read = false
-            GROUP BY  f.id, f.phone
+            GROUP BY  f.id, f.phone, f.avatar
             "#,
             user_id,
-            limit,
-            offset
         )
        .fetch_all(&self.pool)
         .await
@@ -137,7 +150,7 @@ impl Repository for PostgresRepository {
         .map(|record| Friend {
             id: record.id.unwrap(),
             phone: record.phone.unwrap(),
-            unread_count: record.unread_count.unwrap_or(0),
+            avatar: record.avatar,
         })
         .collect())
     }
@@ -162,6 +175,7 @@ impl Repository for PostgresRepository {
         SELECT
             u.id AS id,
             u.phone AS phone,
+            u.avatar AS avatar,
             CASE 
                 WHEN f.status = 'Pending' THEN 'Requested'
                 WHEN t.status = 'Pending' THEN 'Requesting'
@@ -182,6 +196,7 @@ impl Repository for PostgresRepository {
             User {
                 id: record.id,
                 phone: record.phone,
+                avatar: record.avatar,
                 typ: match record.typ.unwrap().as_ref() {
                     "Requesting" => UserType::Requesting,
                     "Requested" => UserType::Requested,
@@ -205,7 +220,7 @@ impl Repository for PostgresRepository {
             r#"
                 WITH 
                     unread_ids AS (
-                        UPDATE messages SET has_read = true WHERE (("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)) AND has_read = false RETURNING id
+                        UPDATE messages SET has_read = true WHERE ("from" = $2 AND "to" = $1) AND has_read = false RETURNING id
                     ),
                     last_message AS (
                         SELECT id FROM messages WHERE (("from" = $1 AND "to" = $2) OR ("from" = $2 AND "to" = $1)) ORDER BY id DESC LIMIT 1
@@ -230,7 +245,7 @@ impl Repository for PostgresRepository {
                             ("from" = $1 AND "to" = $2) 
                             OR ("from" = $2 AND "to" = $1)
                         ) 
-                        AND id < CASE WHEN $4 = null THEN $4 ELSE (SELECT id FROM last_message) END
+                        AND CASE WHEN $4 != NULL THEN id < $4 ELSE id <= (SELECT id FROM last_message) END
                     ORDER BY id DESC
                     LIMIT GREATEST($3, (SELECT COUNT(*) FROM unread_ids LIMIT 1))) AS m
                 ORDER BY m.id ASC;
@@ -261,7 +276,8 @@ impl Repository for PostgresRepository {
         create: &InsertChatMessage,
     ) -> Result<String> {
         query_scalar!(
-            r#"INSERT INTO messages (id, "from", "to", content) VALUES (UUID_GENERATE_V1()::VARCHAR, $1, $2, $3) RETURNING id"#,
+            r#"INSERT INTO messages (id, "from", "to", content) VALUES ($1, $2, $3, $4) RETURNING id"#,
+            self.id_generator.lock().await.generate().to_string(),
             &create.from,
             &create.to,
             &create.content,
@@ -298,27 +314,21 @@ impl Repository for PostgresRepository {
         Ok(())
     }
 
-    async fn sessions(
-        &self,
-        user_id: &str,
-        offset: i64,
-        limit: i64,
-    ) -> Result<Vec<crate::core::repository::Session>> {
+    async fn sessions(&self, user_id: &str) -> Result<Vec<Session>> {
         Ok(query!(r#"
-            SELECT DISTINCT
+            SELECT DISTINCT ON (peer_ids.peer_id, users.phone)
                 peer_ids.peer_id AS peer_id,
                 users.phone AS peer_phone,
-                SUM(CASE WHEN messages.has_read = false THEN 1 ELSE 0 END) OVER (PARTITION BY peer_ids.peer_id ORDER BY messages.id) AS unread_count,
-                LAST_VALUE(messages.content) OVER (PARTITION BY peer_ids.peer_id ORDER BY messages.id) AS latest_content
-            FROM (SELECT DISTINCT
+                SUM(CASE WHEN messages.has_read = false AND messages."from" = peer_ids.peer_id THEN 1 ELSE 0 END) OVER (PARTITION BY peer_ids.peer_id) AS unread_count,
+                FIRST_VALUE(messages.content) OVER (PARTITION BY peer_ids.peer_id ORDER BY messages.id DESC) AS latest_content 
+            FROM 
+                (SELECT DISTINCT
                     CASE WHEN "from" = $1 THEN "to" ELSE "from" END AS peer_id
                 FROM messages
                 WHERE "from" = $1 OR "to" = $1) AS peer_ids
                 JOIN users ON peer_ids.peer_id = users.id
-                JOIN messages ON peer_ids.peer_id = messages."from" OR peer_ids.peer_id = messages."to"
-            LIMIT $2 
-            OFFSET $3
-            "#, user_id, limit, offset).fetch_all(&self.pool)
+                JOIN messages ON (peer_ids.peer_id = messages."from" AND messages."to" = $1) OR (peer_ids.peer_id = messages."to" AND messages."from" = $1)
+            "#, user_id).fetch_all(&self.pool)
             .await
             .map_err(|e| Error::wrap("failed to get sessions".into(), 500, e))?
             .into_iter()
@@ -329,5 +339,34 @@ impl Repository for PostgresRepository {
                 latest_content: record.latest_content,
             })
             .collect())
+    }
+
+    async fn mark_as_read(&self, msg_id: &str) -> Result<()> {
+        query!("UPDATE messages SET has_read = true WHERE id = $1", msg_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                Error::wrap("failed to update message".into(), 500, e)
+            })?;
+        Ok(())
+    }
+
+    async fn get_friend(&self, id: &str) -> Result<Friend> {
+        query!("SELECT id, phone, avatar FROM users WHERE id = $1", id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| Error::wrap("failed to get user".into(), 500, e))
+            .map(|record| Friend {
+                id: record.id,
+                phone: record.phone,
+                avatar: record.avatar,
+            })
+    }
+
+    async fn get_phone(&self, id: &str) -> Result<String> {
+        query_scalar!("SELECT phone FROM users WHERE id = $1", id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| Error::wrap("failed to get user".into(), 500, e))
     }
 }

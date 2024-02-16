@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::core::notifier::Notifier;
-use crate::core::repository::{InsertChatMessage, Repository};
+use crate::core::repository::{Friend, InsertChatMessage, Repository};
 use crate::ws::actor::WS;
 use crate::ws::messages::{InMessage, OutMessage, Outcome};
 use actix::fut::wrap_future;
@@ -98,10 +98,10 @@ where
     type Result = ();
     fn handle(
         &mut self,
-        AddFriend { user_id }: AddFriend,
+        msg: AddFriend,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        ctx.notify(Outcome::success(OutcomeType::AddFriend, user_id));
+        ctx.notify(Outcome::success(OutcomeType::AddFriend, msg));
     }
 }
 
@@ -122,7 +122,21 @@ where
             let req = friends_store.get_friend_request(&id).await.unwrap();
             friends_store.accept_friend_request(&id).await.unwrap();
             if let Some(addr) = addrs.read().await.get(&req.from) {
-                addr.do_send(Outcome::success(OutcomeType::Accept, ()));
+                match friends_store.get_friend(&req.to).await {
+                    Ok(friend) => {
+                        addr.do_send(Outcome::success(
+                            OutcomeType::Accept,
+                            Friend {
+                                id: friend.id,
+                                phone: friend.phone,
+                                avatar: friend.avatar,
+                            },
+                        ));
+                    }
+                    Err(err) => {
+                        error!("{}", err);
+                    }
+                }
             }
         }));
     }
@@ -175,15 +189,24 @@ where
                         e.to_string(),
                     ));
                 }
-                Ok(id) => {
-                    if let Some(addr) = addrs.read().await.get(&to) {
-                        addr.do_send(OutChatMessage {
-                            id,
-                            from: self_id,
-                            content,
-                        })
+                Ok(id) => match repo.get_phone(&self_id).await {
+                    Ok(phone) => {
+                        if let Some(addr) = addrs.read().await.get(&to) {
+                            addr.do_send(OutChatMessage {
+                                id: id.clone(),
+                                from: self_id,
+                                phone,
+                                content,
+                            });
+                            if let Err(e) = repo.mark_as_read(&id).await {
+                                error!("{}", e);
+                            }
+                        }
                     }
-                }
+                    Err(e) => {
+                        error!("{}", e);
+                    }
+                },
             }
         }));
     }

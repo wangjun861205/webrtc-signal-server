@@ -30,3 +30,4 @@ reqwest = { version = "0.11.24" }
 log = "0.4.20"
 rsa = { version = "0.9.6", features = ["sha2"] }
 base64 = "0.21.7"
+rs-snowflake = "0.6.0"

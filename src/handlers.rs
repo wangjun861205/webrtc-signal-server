@@ -22,7 +22,7 @@ use crate::{
         notifier::Notifier,
         repository::{
             ChatMessage, Friend, FriendRequest, InsertChatMessage, Repository,
-            User,
+            Session, User,
         },
     },
     stores::postgres::PostgresRepository,
@@ -90,14 +90,13 @@ where
 pub(crate) async fn my_friends<F>(
     UserID(uid): UserID,
     friends_store: Data<F>,
-    Query(Pagination { limit, offset }): Query<Pagination>,
 ) -> Result<Json<Vec<Friend>>>
 where
     F: Repository,
 {
     Ok(Json(
         friends_store
-            .friends(&uid, limit, offset)
+            .friends(&uid)
             .await
             .map_err(ErrorInternalServerError)?,
     ))
@@ -154,8 +153,16 @@ where
         .add_friend_request(&uid, &friend_id)
         .await
         .map_err(ErrorInternalServerError)?;
+    let phone = friends_store
+        .get_phone(&uid)
+        .await
+        .map_err(ErrorInternalServerError)?;
     if let Some(addr) = addrs.read().await.get(&friend_id) {
-        addr.do_send(messages::AddFriend { user_id: uid });
+        addr.do_send(messages::AddFriend {
+            id: id.clone(),
+            from: uid,
+            phone,
+        });
     }
     Ok(Json(AddFriendResp { id }))
 }
@@ -383,13 +390,12 @@ pub(crate) struct UpdateNotificationToken {
     token: String,
 }
 
-pub(crate) async fn update_notification_token<R, N>(
+pub(crate) async fn update_notification_token<N>(
     notifier: Data<N>,
     UserID(uid): UserID,
     Json(UpdateNotificationToken { token }): Json<UpdateNotificationToken>,
 ) -> Result<HttpResponse>
 where
-    R: Repository + Clone,
     N: Notifier + Clone,
 {
     notifier
@@ -397,4 +403,18 @@ where
         .await
         .map_err(ErrorInternalServerError)?;
     Ok(HttpResponse::Ok().finish())
+}
+
+pub(crate) async fn my_sessions<R>(
+    repo: Data<R>,
+    UserID(uid): UserID,
+) -> Result<Json<Vec<Session>>>
+where
+    R: Repository + Clone,
+{
+    Ok(Json(
+        repo.sessions(&uid)
+            .await
+            .map_err(|e| ErrorInternalServerError(e))?,
+    ))
 }

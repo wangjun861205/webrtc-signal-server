@@ -18,7 +18,7 @@ use ws::actor::WS;
 use actix::Addr;
 use actix_web::{
     middleware::Logger,
-    web::{get, post, put, scope, Data},
+    web::{get, post, put, route, scope, Data},
     App, HttpServer,
 };
 use auth_service::{
@@ -212,12 +212,21 @@ async fn main() -> std::io::Result<()> {
                                 "/notification_token",
                                 put().to(
                                     handlers::update_notification_token::<
-                                        PostgresRepository,
                                         FCMNotifier,
                                     >,
                                 ),
+                            )
+                            .route(
+                                "/sessions",
+                                get().to(handlers::my_sessions::<
+                                    PostgresRepository,
+                                >),
                             ),
-                    ),
+                    )
+                    .service(scope("/friends").route(
+                        "",
+                        get().to(handlers::my_friends::<PostgresRepository>),
+                    )),
             )
     })
     .bind(config.listen_address)

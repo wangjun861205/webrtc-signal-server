@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum Income {
     Message { to: String, content: String },
-    AddFriend { user_id: String },
-    // FriendRequests,
+    // AddFriend { user_id: String },
     Accept { id: String },
     ChatMessage { to: String, content: String },
 }
@@ -14,16 +13,12 @@ pub(crate) enum Income {
 #[rtype(result = "()")]
 pub(crate) struct Online;
 
-#[derive(ActixMessage)]
-#[rtype(result = "()")]
-pub(crate) struct Greet {
-    pub(crate) user_id: String,
-}
-
-#[derive(ActixMessage)]
+#[derive(ActixMessage, Serialize)]
 #[rtype(result = "()")]
 pub(crate) struct AddFriend {
-    pub(crate) user_id: String,
+    pub(crate) id: String,
+    pub(crate) from: String,
+    pub(crate) phone: String,
 }
 
 #[derive(ActixMessage)]
@@ -112,5 +107,6 @@ pub(crate) struct InChatMessage {
 pub(crate) struct OutChatMessage {
     pub(crate) id: String,
     pub(crate) from: String,
+    pub(crate) phone: String,
     pub(crate) content: String,
 }
