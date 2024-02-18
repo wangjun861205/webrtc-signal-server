@@ -4,7 +4,7 @@ use crate::core::repository::{
     ChatMessage, Friend, FriendRequest, FriendRequestStatus, InsertChatMessage,
     Repository, Session, User, UserType,
 };
-use sqlx::{query, query_scalar, types::Uuid};
+use sqlx::{query, query_as, query_scalar, types::Uuid};
 
 impl Repository for PostgresRepository {
     async fn add_friend_request(&self, from: &str, to: &str) -> Result<String> {
@@ -230,14 +230,18 @@ impl Repository for PostgresRepository {
                     "from",
                     "to",
                     content,
-                    sent_at
+                    sent_at,
+                    mime_type,
+                    has_read
                 FROM 
                     (SELECT 
                         id,
                         CASE WHEN "from" != $1 THEN "from" ELSE '' END AS "from",
                         "to",
                         content,
-                        sent_at
+                        sent_at,
+                        mime_type,
+                        has_read
                     FROM 
                         messages
                     WHERE 
@@ -267,6 +271,8 @@ impl Repository for PostgresRepository {
             to: record.to,
             content: record.content,
             sent_at: record.sent_at,
+            mime_type: record.mime_type,
+            has_read: record.has_read,
         })
         .collect())
     }
@@ -274,9 +280,9 @@ impl Repository for PostgresRepository {
     async fn insert_chat_message(
         &self,
         create: &InsertChatMessage,
-    ) -> Result<String> {
-        query_scalar!(
-            r#"INSERT INTO messages (id, "from", "to", content) VALUES ($1, $2, $3, $4) RETURNING id"#,
+    ) -> Result<ChatMessage> {
+        query_as!(ChatMessage,
+            r#"INSERT INTO messages (id, "from", "to", content) VALUES ($1, $2, $3, $4) RETURNING *"#,
             self.id_generator.lock().await.generate().to_string(),
             &create.from,
             &create.to,

@@ -12,7 +12,7 @@ use core::notifier;
 use notifiers::fcm::FCMNotifier;
 use sqlx::postgres::PgPoolOptions;
 use std::{collections::HashMap, env, sync::Arc};
-use stores::postgres::PostgresRepository;
+use stores::{addr::AddrMap, postgres::PostgresRepository};
 use ws::actor::WS;
 
 use actix::Addr;
@@ -39,15 +39,15 @@ struct Config {
     auth_token_secret: String,
 }
 
-type AddrMap =
-    Arc<RwLock<HashMap<String, Addr<WS<PostgresRepository, FCMNotifier>>>>>;
+// type AddrMap =
+//     Arc<RwLock<HashMap<String, Addr<WS<PostgresRepository, FCMNotifier>>>>>;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
     let config = Config::from_env();
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-    let map: AddrMap = Arc::new(RwLock::new(HashMap::new()));
+    let map: AddrMap = AddrMap::new();
     let db_url = env::var("DATABASE_URL")
         .expect("DATABASE_URL environment variable not set");
     let pg_pool = PgPoolOptions::new()
@@ -106,6 +106,7 @@ async fn main() -> std::io::Result<()> {
                     JWTTokenManager<Hmac<sha2::Sha256>>,
                     PostgresRepository,
                     FCMNotifier,
+                    AddrMap,
                 >),
             )
             .service(
@@ -145,6 +146,8 @@ async fn main() -> std::io::Result<()> {
                                         "",
                                         post().to(handlers::add_friend::<
                                             PostgresRepository,
+                                            FCMNotifier,
+                                            AddrMap,
                                         >),
                                     )
                                     .route(
@@ -157,6 +160,8 @@ async fn main() -> std::io::Result<()> {
                                         "/{id}/accept",
                                         put().to(handlers::accept_request::<
                                             PostgresRepository,
+                                            FCMNotifier,
+                                            AddrMap,
                                         >),
                                     )
                                     .route(
@@ -175,12 +180,23 @@ async fn main() -> std::io::Result<()> {
                                     ),
                             ),
                     )
-                    .service(scope("/chat_messages").route(
-                        "",
-                        get().to(handlers::chat_message_history::<
-                            PostgresRepository,
-                        >),
-                    ))
+                    .service(
+                        scope("/chat_messages")
+                            .route(
+                                "",
+                                get().to(handlers::chat_message_history::<
+                                    PostgresRepository,
+                                >),
+                            )
+                            .route(
+                                "",
+                                post().to(handlers::send_message::<
+                                    PostgresRepository,
+                                    FCMNotifier,
+                                    AddrMap,
+                                >),
+                            ),
+                    )
                     .service(
                         scope("/uploads")
                             .route(

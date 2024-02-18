@@ -1,7 +1,10 @@
 use std::collections::HashMap;
+use std::ops::Add;
 
 use crate::core::notifier::Notifier;
-use crate::core::repository::{Friend, InsertChatMessage, Repository};
+use crate::core::repository::{
+    AddrStore, Friend, InsertChatMessage, Repository,
+};
 use crate::ws::actor::WS;
 use crate::ws::messages::{InMessage, OutMessage, Outcome};
 use actix::fut::wrap_future;
@@ -13,10 +16,11 @@ use super::messages::{
     Accept, AddFriend, InChatMessage, OutChatMessage, OutcomeType,
 };
 
-impl<F, N> Handler<InMessage> for WS<F, N>
+impl<R, N, S> Handler<InMessage> for WS<R, N, S>
 where
-    F: Repository + Clone + Unpin + 'static,
+    R: Repository + Clone + Unpin + 'static,
     N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -29,56 +33,57 @@ where
         ctx: &mut Self::Context,
     ) -> Self::Result {
         let self_addr = ctx.address();
-        let addrs = self.addrs.clone();
+        // let addrs = self.addrs.clone();
         let mut notifier = self.notifier.clone();
         ctx.spawn(wrap_future(async move {
-            if let Some(dest_addr) = addrs.read().await.get(&to) {
-                dest_addr.do_send(OutMessage {
-                    from: user_id,
-                    content,
-                });
-                return;
-            } else {
-                match notifier.get_token(&to).await {
-                    Ok(token) => {
-                        if let Some(token) = token {
-                            if let Err(e) = notifier
-                                .send_notification::<HashMap<&str, String>>(
-                                    &token,
-                                    "message",
-                                    "new webrtc message",
-                                    HashMap::from_iter(
-                                        vec![
-                                            ("sender", user_id),
-                                            ("content", content),
-                                        ]
-                                        .into_iter(),
-                                    ),
-                                )
-                                .await
-                            {
-                                error!("failed to send notification: {}", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("failed to get notification token: {}", e);
-                    }
-                }
-            }
-            self_addr.do_send(Outcome::<()>::error(
-                OutcomeType::Message,
-                404,
-                "destination not found".into(),
-            ));
+            // if let Some(dest_addr) = addrs.read().await.get(&to) {
+            //     dest_addr.do_send(OutMessage {
+            //         from: user_id,
+            //         content,
+            //     });
+            //     return;
+            // } else {
+            //     match notifier.get_token(&to).await {
+            //         Ok(token) => {
+            //             if let Some(token) = token {
+            //                 if let Err(e) = notifier
+            //                     .send_notification::<HashMap<&str, String>>(
+            //                         &token,
+            //                         "message",
+            //                         "new webrtc message",
+            //                         HashMap::from_iter(
+            //                             vec![
+            //                                 ("sender", user_id),
+            //                                 ("content", content),
+            //                             ]
+            //                             .into_iter(),
+            //                         ),
+            //                     )
+            //                     .await
+            //                 {
+            //                     error!("failed to send notification: {}", e);
+            //                 }
+            //             }
+            //         }
+            //         Err(e) => {
+            //             error!("failed to get notification token: {}", e);
+            //         }
+            //     }
+            // }
+            // self_addr.do_send(Outcome::<()>::error(
+            //     OutcomeType::Message,
+            //     404,
+            //     "destination not found".into(),
+            // ));
         }));
     }
 }
 
-impl<F, N> Handler<OutMessage> for WS<F, N>
+impl<R, N, S> Handler<OutMessage> for WS<R, N, S>
 where
-    F: Repository + Clone + Unpin + 'static,
+    R: Repository + Clone + Unpin + 'static,
     N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -90,10 +95,11 @@ where
     }
 }
 
-impl<F, N> Handler<AddFriend> for WS<F, N>
+impl<R, N, S> Handler<AddFriend> for WS<R, N, S>
 where
-    F: Repository + Clone + Unpin + 'static,
+    R: Repository + Clone + Unpin + 'static,
     N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -105,10 +111,11 @@ where
     }
 }
 
-impl<F, N> Handler<Accept> for WS<F, N>
+impl<R, N, S> Handler<Accept> for WS<R, N, S>
 where
-    F: Repository + Clone + Unpin + 'static,
+    R: Repository + Clone + Unpin + 'static,
     N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -116,37 +123,38 @@ where
         Accept { id }: Accept,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let friends_store = self.friends_store.clone();
-        let addrs = self.addrs.clone();
+        let repo = self.repo.clone();
+        // let addrs = self.addrs.clone();
         ctx.spawn(wrap_future(async move {
-            let req = friends_store.get_friend_request(&id).await.unwrap();
-            friends_store.accept_friend_request(&id).await.unwrap();
-            if let Some(addr) = addrs.read().await.get(&req.from) {
-                match friends_store.get_friend(&req.to).await {
-                    Ok(friend) => {
-                        addr.do_send(Outcome::success(
-                            OutcomeType::Accept,
-                            Friend {
-                                id: friend.id,
-                                phone: friend.phone,
-                                avatar: friend.avatar,
-                            },
-                        ));
-                    }
-                    Err(err) => {
-                        error!("{}", err);
-                    }
-                }
-            }
+            // let req = friends_store.get_friend_request(&id).await.unwrap();
+            // friends_store.accept_friend_request(&id).await.unwrap();
+            // if let Some(addr) = addrs.read().await.get(&req.from) {
+            //     match friends_store.get_friend(&req.to).await {
+            //         Ok(friend) => {
+            //             addr.do_send(Outcome::success(
+            //                 OutcomeType::Accept,
+            //                 Friend {
+            //                     id: friend.id,
+            //                     phone: friend.phone,
+            //                     avatar: friend.avatar,
+            //                 },
+            //             ));
+            //         }
+            //         Err(err) => {
+            //             error!("{}", err);
+            //         }
+            //     }
+            // }
         }));
     }
 }
 
-impl<O, F, N> Handler<Outcome<O>> for WS<F, N>
+impl<O, R, N, S> Handler<Outcome<O>> for WS<R, N, S>
 where
     O: Serialize,
-    F: Repository + Clone + Unpin + 'static,
+    R: Repository + Clone + Unpin + 'static,
     N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -158,10 +166,11 @@ where
     }
 }
 
-impl<F, N> Handler<InChatMessage> for WS<F, N>
+impl<R, N, S> Handler<InChatMessage> for WS<R, N, S>
 where
-    F: Repository + Clone + Unpin + 'static,
+    R: Repository + Clone + Unpin + 'static,
     N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(
@@ -169,15 +178,16 @@ where
         InChatMessage { to, content }: InChatMessage,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        let repo = self.friends_store.clone();
+        let repo = self.repo.clone();
         let self_id = self.user_id.clone();
         let self_addr = ctx.address();
-        let addrs = self.addrs.clone();
+        // let addrs = self.addrs.clone();
         ctx.spawn(wrap_future(async move {
             match repo
                 .insert_chat_message(&InsertChatMessage {
                     from: self_id.clone(),
                     to: to.clone(),
+                    mime_type: "text/plain".into(),
                     content: content.clone(),
                 })
                 .await
@@ -189,19 +199,19 @@ where
                         e.to_string(),
                     ));
                 }
-                Ok(id) => match repo.get_phone(&self_id).await {
+                Ok(msg) => match repo.get_phone(&self_id).await {
                     Ok(phone) => {
-                        if let Some(addr) = addrs.read().await.get(&to) {
-                            addr.do_send(OutChatMessage {
-                                id: id.clone(),
-                                from: self_id,
-                                phone,
-                                content,
-                            });
-                            if let Err(e) = repo.mark_as_read(&id).await {
-                                error!("{}", e);
-                            }
-                        }
+                        // if let Some(addr) = addrs.read().await.get(&to) {
+                        //     addr.do_send(OutChatMessage {
+                        //         id: msg.id.clone(),
+                        //         from: self_id,
+                        //         phone,
+                        //         content,
+                        //     });
+                        //     if let Err(e) = repo.mark_as_read(&msg.id).await {
+                        //         error!("{}", e);
+                        //     }
+                        // }
                     }
                     Err(e) => {
                         error!("{}", e);
@@ -212,10 +222,11 @@ where
     }
 }
 
-impl<F, N> Handler<OutChatMessage> for WS<F, N>
+impl<R, N, S> Handler<OutChatMessage> for WS<R, N, S>
 where
-    F: Repository + Clone + Unpin + 'static,
+    R: Repository + Clone + Unpin + 'static,
     N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
 {
     type Result = ();
     fn handle(

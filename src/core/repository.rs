@@ -1,6 +1,6 @@
-use crate::core::error::Result;
+use crate::core::{error::Result, message::Message};
 use crate::ws::actor::WS;
-use actix::Addr;
+use actix::{Actor, Addr, Recipient, WeakAddr};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
@@ -61,12 +61,15 @@ pub(crate) struct ChatMessage {
     pub(crate) to: String,
     pub(crate) content: String,
     pub(crate) sent_at: DateTime<chrono::Utc>,
+    pub(crate) has_read: bool,
+    pub(crate) mime_type: String,
 }
 
 #[derive(Clone, Serialize)]
 pub struct InsertChatMessage {
     pub(crate) from: String,
     pub(crate) to: String,
+    pub(crate) mime_type: String,
     pub(crate) content: String,
 }
 
@@ -99,7 +102,7 @@ pub trait Repository {
     async fn insert_chat_message(
         &self,
         create: &InsertChatMessage,
-    ) -> Result<String>;
+    ) -> Result<ChatMessage>;
 
     async fn update_avatar(&self, self_id: &str, upload_id: &str)
         -> Result<()>;
@@ -109,14 +112,8 @@ pub trait Repository {
     async fn get_phone(&self, id: &str) -> Result<String>;
 }
 
-pub trait AddrStore<F, N>
-where
-    F: Repository + Clone + Unpin + 'static,
-    N: Notifier + Clone + Unpin + 'static,
-{
-    async fn add_addr(&self, id: String, addr: Addr<WS<F, N>>) -> Result<()>;
-    async fn remove_addr(&self, id: String) -> Result<()>;
-    async fn get_addr(&self, id: String) -> Result<Addr<WS<F, N>>>;
-    async fn get_all_addrs(&self) -> Result<Vec<Addr<WS<F, N>>>>;
-    async fn get_all_ids(&self) -> Result<Vec<String>>;
+pub trait AddrStore {
+    async fn add_addr(&self, id: &str, addr: Recipient<Message>) -> Result<()>;
+    async fn remove_addr(&self, id: &str) -> Result<()>;
+    async fn get_addr(&self, id: &str) -> Result<Option<Recipient<Message>>>;
 }

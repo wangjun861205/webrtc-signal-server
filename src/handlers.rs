@@ -1,4 +1,16 @@
-use actix_multipart::{form::MultipartForm, Field, Multipart};
+use crate::{
+    core::{
+        error::Error,
+        message::{
+            ChatMessage, ChatMessagePayload, FriendAccept, FriendRequest,
+            Message, SystemMessage,
+        },
+        repository::{self, ChatMessage as RepoChatMessage, InsertChatMessage},
+    },
+    ws::{actor::WS, messages::OutChatMessage},
+};
+use actix::{Actor, ActorContext, Context, Handler};
+use actix_multipart::Multipart;
 use actix_web::{
     error::{ErrorForbidden, ErrorInternalServerError},
     http::StatusCode,
@@ -9,9 +21,8 @@ use auth_service::core::{
     hasher::Hasher, repository::Repository as AuthRepository,
     service::Service as AuthService, token_manager::TokenManager,
 };
-use futures_util::{Stream, StreamExt, TryStreamExt};
-use serde::{de, Deserialize, Serialize};
-use std::sync::Arc;
+use futures_util::{StreamExt, TryStreamExt};
+use serde::{Deserialize, Serialize};
 use upload_service::core::{
     repository::Repository as UploadRepository,
     service::Service as UploadService, store::Store as UploadStore,
@@ -20,10 +31,7 @@ use upload_service::core::{
 use crate::{
     core::{
         notifier::Notifier,
-        repository::{
-            ChatMessage, Friend, FriendRequest, InsertChatMessage, Repository,
-            Session, User,
-        },
+        repository::{AddrStore, Friend, Repository, Session, User},
     },
     stores::postgres::PostgresRepository,
     utils::UserID,
@@ -140,14 +148,16 @@ pub(crate) struct AddFriendResp {
     id: String,
 }
 
-pub(crate) async fn add_friend<F>(
-    friends_store: Data<F>,
-    addrs: Data<AddrMap>,
+pub(crate) async fn add_friend<R, N, S>(
+    friends_store: Data<R>,
+    addrs: Data<S>,
     UserID(uid): UserID,
     Json(AddFriend { friend_id }): Json<AddFriend>,
 ) -> Result<Json<AddFriendResp>>
 where
-    F: Repository,
+    R: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
 {
     let id = friends_store
         .add_friend_request(&uid, &friend_id)
@@ -157,24 +167,36 @@ where
         .get_phone(&uid)
         .await
         .map_err(ErrorInternalServerError)?;
-    if let Some(addr) = addrs.read().await.get(&friend_id) {
-        addr.do_send(messages::AddFriend {
-            id: id.clone(),
-            from: uid,
-            phone,
-        });
+    if let Some(addr) = addrs
+        .get_addr(&friend_id)
+        .await
+        .map_err(ErrorInternalServerError)?
+    {
+        // addr.do_send(messages::AddFriend {
+        //     id: id.clone(),
+        //     from: uid,
+        //     phone,
+        // });
+        addr.do_send(Message::System(SystemMessage::FriendRequest(
+            FriendRequest {
+                id: id.clone(),
+                phone,
+            },
+        )))
     }
     Ok(Json(AddFriendResp { id }))
 }
 
-pub(crate) async fn accept_request<F>(
-    friends_store: Data<F>,
-    addrs: Data<AddrMap>,
+pub(crate) async fn accept_request<R, N, S>(
+    friends_store: Data<R>,
+    addrs: Data<S>,
     UserID(uid): UserID,
     id: Path<(String,)>,
 ) -> Result<HttpResponse>
 where
-    F: Repository,
+    R: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
 {
     let req = friends_store
         .get_friend_request(&id.0)
@@ -187,10 +209,19 @@ where
         .accept_friend_request(&id.0)
         .await
         .map_err(ErrorInternalServerError)?;
-    if let Some(addr) = addrs.read().await.get(&req.from) {
-        addr.do_send(messages::Accept {
-            id: id.0.to_owned(),
-        });
+    if let Some(addr) = addrs
+        .get_addr(&req.from)
+        .await
+        .map_err(ErrorInternalServerError)?
+    {
+        // addr.do_send(messages::Accept {
+        //     id: id.0.to_owned(),
+        // });
+        addr.do_send(Message::System(SystemMessage::FriendAccept(
+            FriendAccept {
+                id: id.0.to_owned(),
+            },
+        )));
     }
     Ok(HttpResponse::new(StatusCode::OK))
 }
@@ -220,7 +251,7 @@ where
 pub(crate) async fn my_requests<F>(
     friends_store: Data<F>,
     UserID(uid): UserID,
-) -> Result<Json<Vec<FriendRequest>>>
+) -> Result<Json<Vec<crate::core::repository::FriendRequest>>>
 where
     F: Repository,
 {
@@ -261,7 +292,7 @@ pub(crate) async fn chat_message_history<F>(
     repository: Data<F>,
     UserID(uid): UserID,
     Query(ChatMessageHistory { to, before }): Query<ChatMessageHistory>,
-) -> Result<Json<Vec<ChatMessage>>>
+) -> Result<Json<Vec<RepoChatMessage>>>
 where
     F: Repository,
 {
@@ -415,6 +446,79 @@ where
     Ok(Json(
         repo.sessions(&uid)
             .await
-            .map_err(|e| ErrorInternalServerError(e))?,
+            .map_err(ErrorInternalServerError)?,
     ))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct SendMessage {
+    to: String,
+    mime_type: String,
+    content: String,
+}
+
+pub(crate) async fn send_message<R, N, S>(
+    repo: Data<R>,
+    addrs: Data<S>,
+    UserID(uid): UserID,
+    Json(SendMessage {
+        to,
+        mime_type,
+        content,
+    }): Json<SendMessage>,
+) -> Result<Json<RepoChatMessage>>
+where
+    R: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
+{
+    let inserted = repo
+        .insert_chat_message(&InsertChatMessage {
+            from: uid.clone(),
+            to: to.clone(),
+            mime_type: mime_type.clone(),
+            content: content.clone(),
+        })
+        .await
+        .map_err(ErrorInternalServerError)?;
+    if let Some(addr) = addrs
+        .get_addr(&to)
+        .await
+        .map_err(ErrorInternalServerError)?
+    {
+        let phone = repo
+            .get_phone(&uid)
+            .await
+            .map_err(ErrorInternalServerError)?;
+        // addr.do_send(OutChatMessage {
+        //     id: inserted.id.clone(),
+        //     from: uid,
+        //     content: content.clone(),
+        //     phone,
+        // });
+        addr.do_send(Message::Chat(ChatMessage {
+            from: uid,
+            phone,
+            payload: ChatMessagePayload {
+                mime_type: mime_type,
+                content,
+            },
+        }))
+    }
+    Ok(Json(inserted))
+}
+
+impl<R, N, S> Handler<crate::core::message::Message> for WS<R, N, S>
+where
+    R: Repository + Clone + Unpin + 'static,
+    N: Notifier + Clone + Unpin + 'static,
+    S: AddrStore + Clone + Unpin + 'static,
+{
+    type Result = ();
+    fn handle(
+        &mut self,
+        msg: crate::core::message::Message,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+    }
 }
