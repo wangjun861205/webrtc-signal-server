@@ -237,7 +237,7 @@ impl Repository for PostgresRepository {
                 FROM 
                     (SELECT 
                         id,
-                        CASE WHEN "from" != $1 THEN "from" ELSE '' END AS "from",
+                        "from",
                         "to",
                         content,
                         sent_at,
@@ -268,7 +268,7 @@ impl Repository for PostgresRepository {
         .into_iter()
         .map(|record| ChatMessage {
             id: record.id,
-            from: record.from.unwrap(),
+            from: record.from,
             to: record.to,
             content: record.content,
             sent_at: record.sent_at,
@@ -283,10 +283,11 @@ impl Repository for PostgresRepository {
         create: &InsertChatMessage,
     ) -> Result<ChatMessage> {
         query_as!(ChatMessage,
-            r#"INSERT INTO messages (id, "from", "to", content) VALUES ($1, $2, $3, $4) RETURNING *"#,
+            r#"INSERT INTO messages (id, "from", "to", mime_type, content) VALUES ($1, $2, $3, $4, $5) RETURNING *"#,
             self.id_generator.lock().await.generate().to_string(),
             &create.from,
             &create.to,
+            &create.mime_type,
             &create.content,
         )
         .fetch_one(&self.pool)
@@ -327,6 +328,7 @@ impl Repository for PostgresRepository {
                 peer_ids.peer_id AS peer_id,
                 users.phone AS peer_phone,
                 SUM(CASE WHEN messages.has_read = false AND messages."from" = peer_ids.peer_id THEN 1 ELSE 0 END) OVER (PARTITION BY peer_ids.peer_id) AS unread_count,
+                FIRST_VALUE(messages.mime_type) OVER (PARTITION BY peer_ids.peer_id ORDER BY messages.id DESC) AS latest_mime_type,
                 FIRST_VALUE(messages.content) OVER (PARTITION BY peer_ids.peer_id ORDER BY messages.id DESC) AS latest_content 
             FROM 
                 (SELECT DISTINCT
@@ -343,6 +345,7 @@ impl Repository for PostgresRepository {
                 peer_id: record.peer_id.unwrap(),
                 peer_phone: record.peer_phone,
                 unread_count: record.unread_count.unwrap(),
+                latest_mime_type: record.latest_mime_type,
                 latest_content: record.latest_content,
             })
             .collect())

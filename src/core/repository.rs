@@ -41,6 +41,7 @@ pub(crate) struct Session {
     pub(crate) peer_id: String,
     pub(crate) peer_phone: String,
     pub(crate) unread_count: i64,
+    pub(crate) latest_mime_type: Option<String>,
     pub(crate) latest_content: Option<String>,
 }
 

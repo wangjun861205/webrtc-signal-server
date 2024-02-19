@@ -2,21 +2,22 @@ use std::fs;
 
 use crate::core::error::{Error, Result};
 use chrono::Utc;
+use futures_util::lock::Mutex;
 use reqwest::Client;
 use serde::Serialize;
-use serde_json::{from_str, to_vec};
+use serde_json::{from_str, to_string, to_vec};
 use sha2::Sha256;
 use sqlx::{query, query_scalar, PgPool};
+use tokio::sync::RwLock;
 
 use crate::core::notifier::Notifier;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FCMNotifier {
     client: Client,
     pool: PgPool,
-    access_token: Rc<RefCell<Option<String>>>,
+    access_token: Arc<Mutex<Option<String>>>,
 }
 
 impl FCMNotifier {
@@ -24,7 +25,7 @@ impl FCMNotifier {
         Self {
             client: Client::new(),
             pool,
-            access_token: Rc::new(RefCell::new(None)),
+            access_token: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -34,6 +35,7 @@ pub(crate) struct Notification {
     title: String,
     body: String,
 }
+
 
 #[derive(Debug, Serialize)]
 pub(crate) struct Message<T>
@@ -82,7 +84,8 @@ impl Notifier for FCMNotifier {
     where
         T: Serialize,
     {
-        let mut access_token = self.access_token.borrow_mut();
+
+        let mut access_token = self.access_token.lock().await;
         if access_token.is_none() {
             *access_token = Some(mint_access_token().await?);
         }

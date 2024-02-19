@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ChatPayload {
+    pub(crate) id: String,
     pub(crate) mime_type: String,
     pub(crate) content: String,
 }

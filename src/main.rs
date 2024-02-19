@@ -9,13 +9,13 @@ pub mod utils;
 pub mod ws;
 
 use notifiers::fcm::FCMNotifier;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{postgres::PgPoolOptions, Postgres};
 use std::env;
 use stores::{addr::AddrMap, postgres::PostgresRepository};
 
 use actix_web::{
     middleware::Logger,
-    web::{delete, get, post, put, scope, Data},
+    web::{delete, get, post, put, route, scope, Data},
     App, HttpServer,
 };
 use auth_service::{
@@ -240,7 +240,8 @@ async fn main() -> std::io::Result<()> {
                             .route(
                                 "",
                                 delete().to(handlers::offline::<AddrMap>),
-                            ),
+                            )
+                            .route("", get().to(handlers::me::<PostgresRepository>)),
                     )
                     .service(scope("/friends").route(
                         "",
@@ -253,7 +254,8 @@ async fn main() -> std::io::Result<()> {
                             FCMNotifier,
                             AddrMap,
                         >),
-                    )),
+                    ))
+                    .route("", get().to(handlers::verify_auth_token))
             )
     })
     .bind(config.listen_address)

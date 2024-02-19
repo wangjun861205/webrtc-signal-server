@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     core::{
         error::Error,
@@ -474,9 +476,9 @@ where
         .await
         .map_err(ErrorInternalServerError)?;
     let chat_msg = Message::Chat {
-        from: uid,
-        phone: user.phone,
-        payload: ChatPayload { mime_type, content },
+        from: uid.clone(),
+        phone: user.phone.clone(),
+        payload: ChatPayload { id: inserted.id.clone(), mime_type, content },
     };
     if let Some(addr) = addrs
         .get_addr(&to)
@@ -484,17 +486,18 @@ where
         .map_err(ErrorInternalServerError)?
     {
         addr.do_send(chat_msg);
-    } else {
+    } else if let Some(fcm_token) = notifier.get_token(&to).await.map_err(ErrorInternalServerError)? {
         notifier
             .send_notification(
-                &to,
+                &fcm_token,
                 "Chat message",
                 "You got a chat message just now",
-                chat_msg,
+                [("phone", user.phone), ("typ", "Chat".into())].into_iter().collect::<HashMap<&str, String>>(),
             )
             .await
             .map_err(ErrorInternalServerError)?;
-    }
+        }
+        
     Ok(Json(inserted))
 }
 
@@ -575,4 +578,12 @@ where
         .await
         .map_err(ErrorInternalServerError)?;
     Ok(HttpResponse::Ok().finish())
+}
+
+pub(crate) async fn verify_auth_token() -> HttpResponse {
+    HttpResponse::Ok().finish()
+}
+
+pub(crate) async fn me<R>(repo: Data<R>, UserID(uid): UserID) -> Result<Json<User>> where R: Repository + Clone + 'static{
+    Ok(Json(repo.get_user(&uid).await.map_err(ErrorInternalServerError)?))
 }
