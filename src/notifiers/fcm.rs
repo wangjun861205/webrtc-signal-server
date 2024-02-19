@@ -9,12 +9,14 @@ use sha2::Sha256;
 use sqlx::{query, query_scalar, PgPool};
 
 use crate::core::notifier::Notifier;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub(crate) struct FCMNotifier {
     client: Client,
     pool: PgPool,
-    access_token: Option<String>,
+    access_token: Rc<RefCell<Option<String>>>,
 }
 
 impl FCMNotifier {
@@ -22,7 +24,7 @@ impl FCMNotifier {
         Self {
             client: Client::new(),
             pool,
-            access_token: None,
+            access_token: Rc::new(RefCell::new(None)),
         }
     }
 }
@@ -71,7 +73,7 @@ impl Notifier for FCMNotifier {
         Ok(())
     }
     async fn send_notification<T>(
-        &mut self,
+        &self,
         to: &str,
         title: &str,
         body: &str,
@@ -80,14 +82,15 @@ impl Notifier for FCMNotifier {
     where
         T: Serialize,
     {
-        if self.access_token.is_none() {
-            self.access_token = Some(mint_access_token().await?);
+        let mut access_token = self.access_token.borrow_mut();
+        if access_token.is_none() {
+            *access_token = Some(mint_access_token().await?);
         }
         let req = self
             .client
             .post("https://fcm.googleapis.com/v1/projects/webrtc-example-1af2b/messages:send")
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", self.access_token.to_owned().unwrap()))
+            .header("Authorization", format!("Bearer {}", access_token.to_owned().unwrap()))
             .body(
                 to_vec(&Body {
                     message: Message {

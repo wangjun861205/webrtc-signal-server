@@ -1,10 +1,7 @@
 use crate::core::{error::Result, message::Message};
-use crate::ws::actor::WS;
-use actix::{Actor, Addr, Recipient, WeakAddr};
+use actix::Recipient;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-
-use super::notifier::Notifier;
 
 #[derive(Clone, PartialEq, Serialize)]
 pub enum FriendRequestStatus {
@@ -36,14 +33,7 @@ pub(crate) struct User {
     pub id: String,
     pub phone: String,
     pub avatar: Option<String>,
-    pub typ: UserType,
-}
-
-#[derive(Clone, Serialize)]
-pub(crate) struct Friend {
-    pub id: String,
-    pub phone: String,
-    pub avatar: Option<String>,
+    pub typ: Option<UserType>,
 }
 
 #[derive(Clone, Serialize)]
@@ -60,7 +50,7 @@ pub(crate) struct ChatMessage {
     pub(crate) from: String,
     pub(crate) to: String,
     pub(crate) content: String,
-    pub(crate) sent_at: DateTime<chrono::Utc>,
+    pub(crate) sent_at: DateTime<Utc>,
     pub(crate) has_read: bool,
     pub(crate) mime_type: String,
 }
@@ -82,7 +72,7 @@ pub trait Repository {
         &self,
         to: &str,
     ) -> Result<Vec<FriendRequest>>;
-    async fn friends(&self, user_id: &str) -> Result<Vec<Friend>>;
+    async fn friends(&self, user_id: &str) -> Result<Vec<User>>;
     async fn sessions(&self, user_id: &str) -> Result<Vec<Session>>;
     async fn is_friend(&self, user_id: &str, friend_id: &str) -> Result<bool>;
     async fn search_user(
@@ -107,9 +97,8 @@ pub trait Repository {
     async fn update_avatar(&self, self_id: &str, upload_id: &str)
         -> Result<()>;
     async fn get_avatar(&self, self_id: &str) -> Result<Option<String>>;
-    async fn mark_as_read(&self, msg_id: &str) -> Result<()>;
-    async fn get_friend(&self, id: &str) -> Result<Friend>;
-    async fn get_phone(&self, id: &str) -> Result<String>;
+    async fn mark_as_read(&self, user_id: &str, msg_id: &str) -> Result<()>;
+    async fn get_user(&self, id: &str) -> Result<User>;
 }
 
 pub trait AddrStore {

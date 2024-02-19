@@ -5,7 +5,7 @@ pub trait Notifier {
     async fn update_token(&self, uid: &str, token: &str) -> Result<()>;
     async fn get_token(&self, uid: &str) -> Result<Option<String>>;
     async fn send_notification<T>(
-        &mut self,
+        &self,
         to: &str,
         title: &str,
         body: &str,

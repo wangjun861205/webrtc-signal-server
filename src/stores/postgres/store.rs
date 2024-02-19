@@ -1,7 +1,7 @@
 use super::PostgresRepository;
 use crate::core::error::{Error, Result};
 use crate::core::repository::{
-    ChatMessage, Friend, FriendRequest, FriendRequestStatus, InsertChatMessage,
+    ChatMessage, FriendRequest, FriendRequestStatus, InsertChatMessage,
     Repository, Session, User, UserType,
 };
 use sqlx::{query, query_as, query_scalar, types::Uuid};
@@ -104,7 +104,7 @@ impl Repository for PostgresRepository {
 	.collect())
     }
 
-    async fn friends(&self, user_id: &str) -> Result<Vec<Friend>> {
+    async fn friends(&self, user_id: &str) -> Result<Vec<User>> {
         Ok(query!(
             r#"
             SELECT
@@ -147,10 +147,11 @@ impl Repository for PostgresRepository {
             Error::wrap("failed to get friend requests".into(), 500, e)
         })?
         .into_iter()
-        .map(|record| Friend {
+        .map(|record| User {
             id: record.id.unwrap(),
             phone: record.phone.unwrap(),
             avatar: record.avatar,
+            typ: Some(UserType::Friend),
         })
         .collect())
     }
@@ -198,11 +199,11 @@ impl Repository for PostgresRepository {
                 phone: record.phone,
                 avatar: record.avatar,
                 typ: match record.typ.unwrap().as_ref() {
-                    "Requesting" => UserType::Requesting,
-                    "Requested" => UserType::Requested,
-                    "Friend" => UserType::Friend,
-                    "Myself" => UserType::Myself,
-                    "Stranger" => UserType::Stranger,
+                    "Requesting" => Some(UserType::Requesting),
+                    "Requested" => Some(UserType::Requested),
+                    "Friend" => Some(UserType::Friend),
+                    "Myself" => Some(UserType::Myself),
+                    "Stranger" => Some(UserType::Stranger),
                     _ => unreachable!(),
                 }
             }
@@ -347,8 +348,8 @@ impl Repository for PostgresRepository {
             .collect())
     }
 
-    async fn mark_as_read(&self, msg_id: &str) -> Result<()> {
-        query!("UPDATE messages SET has_read = true WHERE id = $1", msg_id)
+    async fn mark_as_read(&self, user_id: &str, msg_id: &str) -> Result<()> {
+        query!(r#"UPDATE messages SET has_read = true WHERE id = $1 AND "from" = $2"#, msg_id, user_id)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -357,22 +358,19 @@ impl Repository for PostgresRepository {
         Ok(())
     }
 
-    async fn get_friend(&self, id: &str) -> Result<Friend> {
-        query!("SELECT id, phone, avatar FROM users WHERE id = $1", id)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| Error::wrap("failed to get user".into(), 500, e))
-            .map(|record| Friend {
-                id: record.id,
-                phone: record.phone,
-                avatar: record.avatar,
-            })
-    }
-
-    async fn get_phone(&self, id: &str) -> Result<String> {
-        query_scalar!("SELECT phone FROM users WHERE id = $1", id)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| Error::wrap("failed to get user".into(), 500, e))
+    async fn get_user(&self, id: &str) -> Result<User> {
+        query!(
+            "SELECT id, phone, avatar as typ FROM users WHERE id = $1",
+            id
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| Error::wrap("failed to get user".into(), 500, e))
+        .map(|record| User {
+            id: record.id,
+            phone: record.phone,
+            avatar: record.typ,
+            typ: None,
+        })
     }
 }

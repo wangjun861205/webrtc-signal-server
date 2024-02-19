@@ -8,17 +8,14 @@ pub mod stores;
 pub mod utils;
 pub mod ws;
 
-use core::notifier;
 use notifiers::fcm::FCMNotifier;
 use sqlx::postgres::PgPoolOptions;
-use std::{collections::HashMap, env, sync::Arc};
+use std::env;
 use stores::{addr::AddrMap, postgres::PostgresRepository};
-use ws::actor::WS;
 
-use actix::Addr;
 use actix_web::{
     middleware::Logger,
-    web::{get, post, put, route, scope, Data},
+    web::{delete, get, post, put, scope, Data},
     App, HttpServer,
 };
 use auth_service::{
@@ -28,7 +25,6 @@ use auth_service::{
 };
 use hmac::{Hmac, Mac};
 use nb_from_env::{FromEnv, FromEnvDerive};
-use tokio::sync::RwLock;
 use upload_service::{
     core::service::Service as UploadService, stores::local_fs::LocalFSStore,
 };
@@ -38,9 +34,6 @@ struct Config {
     listen_address: String,
     auth_token_secret: String,
 }
-
-// type AddrMap =
-//     Arc<RwLock<HashMap<String, Addr<WS<PostgresRepository, FCMNotifier>>>>>;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -98,8 +91,8 @@ async fn main() -> std::io::Result<()> {
                     JWTTokenManager<Hmac<sha2::Sha256>>,
                 >),
             )
-            .route(
-                "/ws",
+            .service(scope("/ws").route(
+                "",
                 get().to(ws::actor::index::<
                     PostgresRepository,
                     ShaHasher,
@@ -108,7 +101,7 @@ async fn main() -> std::io::Result<()> {
                     FCMNotifier,
                     AddrMap,
                 >),
-            )
+            ))
             .service(
                 scope("/apis/v1")
                     .wrap(AuthTokenMiddleware::new(
@@ -190,10 +183,16 @@ async fn main() -> std::io::Result<()> {
                             )
                             .route(
                                 "",
-                                post().to(handlers::send_message::<
+                                post().to(handlers::send_chat_message::<
                                     PostgresRepository,
                                     FCMNotifier,
                                     AddrMap,
+                                >),
+                            )
+                            .route(
+                                "/{id}",
+                                put().to(handlers::mark_as_read::<
+                                    PostgresRepository,
                                 >),
                             ),
                     )
@@ -237,11 +236,23 @@ async fn main() -> std::io::Result<()> {
                                 get().to(handlers::my_sessions::<
                                     PostgresRepository,
                                 >),
+                            )
+                            .route(
+                                "",
+                                delete().to(handlers::offline::<AddrMap>),
                             ),
                     )
                     .service(scope("/friends").route(
                         "",
                         get().to(handlers::my_friends::<PostgresRepository>),
+                    ))
+                    .service(scope("/rtc_messages").route(
+                        "",
+                        post().to(handlers::send_rtc_message::<
+                            PostgresRepository,
+                            FCMNotifier,
+                            AddrMap,
+                        >),
                     )),
             )
     })

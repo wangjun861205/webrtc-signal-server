@@ -1,32 +1,10 @@
 use actix::Message as ActixMessage;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, ActixMessage)]
-#[rtype(result = "()")]
-pub(crate) struct RTCMessage {
-    pub(crate) from: String,
-    pub(crate) to: String,
-    pub(crate) payload: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ChatMessagePayload {
+pub(crate) struct ChatPayload {
     pub(crate) mime_type: String,
     pub(crate) content: String,
-}
-
-#[derive(Debug, Clone, ActixMessage)]
-#[rtype(result = "()")]
-pub(crate) struct ChatMessage {
-    pub(crate) from: String,
-    pub(crate) phone: String,
-    pub(crate) payload: ChatMessagePayload,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum SystemMessageType {
-    FriendRequest,
-    FriendAccept,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,17 +18,33 @@ pub(crate) struct FriendAccept {
     pub(crate) id: String,
 }
 
-#[derive(Debug, Clone, ActixMessage)]
+#[derive(Debug, Clone, ActixMessage, Serialize)]
+#[serde(tag = "typ")]
 #[rtype(result = "()")]
 pub(crate) enum SystemMessage {
-    FriendRequest(FriendRequest),
-    FriendAccept(FriendAccept),
+    FriendRequest {
+        id: String,
+        phone: String,
+        avatar: Option<String>,
+    },
+    FriendAccept {
+        id: String,
+    },
 }
 
-#[derive(Debug, Clone, ActixMessage)]
+#[derive(Debug, Clone, ActixMessage, Serialize)]
+#[serde(tag = "typ")]
 #[rtype(result = "()")]
 pub(crate) enum Message {
-    RTC(RTCMessage),
-    Chat(ChatMessage),
+    RTC {
+        from: String,
+        phone: String,
+        payload: String,
+    },
+    Chat {
+        from: String,
+        phone: String,
+        payload: ChatPayload,
+    },
     System(SystemMessage),
 }
