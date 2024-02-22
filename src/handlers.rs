@@ -478,7 +478,11 @@ where
     let chat_msg = Message::Chat {
         from: uid.clone(),
         phone: user.phone.clone(),
-        payload: ChatPayload { id: inserted.id.clone(), mime_type, content },
+        payload: ChatPayload {
+            id: inserted.id.clone(),
+            mime_type,
+            content,
+        },
     };
     if let Some(addr) = addrs
         .get_addr(&to)
@@ -486,18 +490,24 @@ where
         .map_err(ErrorInternalServerError)?
     {
         addr.do_send(chat_msg);
-    } else if let Some(fcm_token) = notifier.get_token(&to).await.map_err(ErrorInternalServerError)? {
+    } else if let Some(fcm_token) = notifier
+        .get_token(&to)
+        .await
+        .map_err(ErrorInternalServerError)?
+    {
         notifier
             .send_notification(
                 &fcm_token,
                 "Chat message",
                 "You got a chat message just now",
-                [("phone", user.phone), ("typ", "Chat".into())].into_iter().collect::<HashMap<&str, String>>(),
+                [("phone", user.phone), ("typ", "Chat".into())]
+                    .into_iter()
+                    .collect::<HashMap<&str, String>>(),
             )
             .await
             .map_err(ErrorInternalServerError)?;
-        }
-        
+    }
+
     Ok(Json(inserted))
 }
 
@@ -584,6 +594,38 @@ pub(crate) async fn verify_auth_token() -> HttpResponse {
     HttpResponse::Ok().finish()
 }
 
-pub(crate) async fn me<R>(repo: Data<R>, UserID(uid): UserID) -> Result<Json<User>> where R: Repository + Clone + 'static{
-    Ok(Json(repo.get_user(&uid).await.map_err(ErrorInternalServerError)?))
+pub(crate) async fn me<R>(
+    repo: Data<R>,
+    UserID(uid): UserID,
+) -> Result<Json<User>>
+where
+    R: Repository + Clone + 'static,
+{
+    Ok(Json(
+        repo.get_user(&uid)
+            .await
+            .map_err(ErrorInternalServerError)?,
+    ))
+}
+
+pub(crate) async fn logout<R, AR, H, T>(
+    repo: Data<R>,
+    auth_service: Data<AuthService<AR, H, T>>,
+    UserID(uid): UserID,
+) -> Result<HttpResponse>
+where
+    R: Repository + Clone,
+    AR: AuthRepository + Clone,
+    H: Hasher + Clone,
+    T: TokenManager + Clone,
+{
+    let me = repo
+        .get_user(&uid)
+        .await
+        .map_err(ErrorInternalServerError)?;
+    auth_service
+        .logout(&me.phone)
+        .await
+        .map_err(ErrorInternalServerError)?;
+    Ok(HttpResponse::Ok().finish())
 }

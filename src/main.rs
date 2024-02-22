@@ -91,6 +91,23 @@ async fn main() -> std::io::Result<()> {
                     JWTTokenManager<Hmac<sha2::Sha256>>,
                 >),
             )
+            .service(
+                scope("/logout")
+                    .wrap(AuthTokenMiddleware::new(
+                        "X-Auth-Token",
+                        "X-User-ID",
+                        auth_service.clone(),
+                    ))
+                    .route(
+                        "",
+                        delete().to(handlers::logout::<
+                            PostgresRepository,
+                            PostgresRepository,
+                            ShaHasher,
+                            JWTTokenManager<Hmac<sha2::Sha256>>,
+                        >),
+                    ),
+            )
             .service(scope("/ws").route(
                 "",
                 get().to(ws::actor::index::<
@@ -241,7 +258,10 @@ async fn main() -> std::io::Result<()> {
                                 "",
                                 delete().to(handlers::offline::<AddrMap>),
                             )
-                            .route("", get().to(handlers::me::<PostgresRepository>)),
+                            .route(
+                                "",
+                                get().to(handlers::me::<PostgresRepository>),
+                            ),
                     )
                     .service(scope("/friends").route(
                         "",
@@ -255,7 +275,7 @@ async fn main() -> std::io::Result<()> {
                             AddrMap,
                         >),
                     ))
-                    .route("", get().to(handlers::verify_auth_token))
+                    .route("", get().to(handlers::verify_auth_token)),
             )
     })
     .bind(config.listen_address)

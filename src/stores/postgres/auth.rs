@@ -90,4 +90,15 @@ impl Repository for PostgresRepository {
         .id;
         Ok(id)
     }
+
+    async fn delete_key(&self, identifier: &str) -> Result<(), Error> {
+        query!(
+            "UPDATE users SET session_key = NULL WHERE phone = $1",
+            identifier
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::FailedToDeleteKey(Box::new(e)))?;
+        Ok(())
+    }
 }

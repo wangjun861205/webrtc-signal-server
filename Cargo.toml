@@ -22,8 +22,8 @@ uuid = { version = "1.7.0", features = ["v4"] }
 sqlx = { version = "0.7.3", features = ["postgres", "uuid", "chrono"] }
 anyhow = "1.0.79"
 chrono = "0.4.33"
-auth-service = { git = "https://github.com/wangjun861205/auth-service" }
 upload-service = { git = "https://github.com/wangjun861205/upload-service" }
+auth-service = { git = "https://github.com/wangjun861205/auth-service" }
 actix-multipart = "0.6.1"
 futures-util = "0.3.30"
 reqwest = { version = "0.11.24" }
